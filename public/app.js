@@ -4,6 +4,8 @@ const templateForm = document.getElementById("template-form");
 const templateResult = document.getElementById("template-result");
 const webhookButton = document.getElementById("webhook-test");
 const webhookResult = document.getElementById("webhook-result");
+const phoneButton = document.getElementById("phone-numbers");
+const phoneResult = document.getElementById("phone-result");
 
 const pretty = (data) => JSON.stringify(data, null, 2);
 
@@ -68,6 +70,18 @@ if (webhookButton && webhookResult) {
       webhookResult.textContent = pretty(data);
     } catch (err) {
       webhookResult.textContent = pretty(err);
+    }
+  });
+}
+
+if (phoneButton && phoneResult) {
+  phoneButton.addEventListener("click", async () => {
+    phoneResult.textContent = "Buscando...";
+    try {
+      const data = await postJson("/api/phone-numbers", {});
+      phoneResult.textContent = pretty(data);
+    } catch (err) {
+      phoneResult.textContent = pretty(err);
     }
   });
 }
