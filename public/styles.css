@@ -1569,11 +1569,35 @@ body.canva-page main.layout {
   color: #146b46;
   font-size: 12px;
   font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .tag-pill.muted {
   background: #f1f4f2;
   color: #6b7b74;
+}
+
+.tag-remove {
+  border: none;
+  background: #c9f1dc;
+  color: #0b5b3a;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  margin: 0;
+}
+
+.tag-remove:hover {
+  background: #a9e9c9;
 }
 
 @media (max-width: 980px) {

@@ -33,6 +33,19 @@ async function fetchContacts() {
   return Array.isArray(data.data) ? data.data : [];
 }
 
+async function updateTag(waId, tag, action) {
+  const res = await fetch("/api/contacts", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ wa_id: waId, tag, action }),
+    credentials: "include",
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  if (!data || !data.ok) return null;
+  return data.data || null;
+}
+
 function formatDate(value) {
   if (!value) return "";
   const raw = Number(value);
@@ -84,6 +97,21 @@ function renderContacts(list) {
         const pill = document.createElement("span");
         pill.className = "tag-pill";
         pill.textContent = tag;
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "tag-remove";
+        remove.textContent = "x";
+        remove.addEventListener("click", async (event) => {
+          event.stopPropagation();
+          const updated = await updateTag(contact.wa_id, tag, "remove");
+          if (updated) {
+            contacts = contacts.map((item) =>
+              item.wa_id === updated.wa_id ? updated : item,
+            );
+            applySearch();
+          }
+        });
+        pill.appendChild(remove);
         tagWrap.appendChild(pill);
       });
     }
