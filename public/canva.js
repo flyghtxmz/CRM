@@ -159,7 +159,11 @@ function loadFlow() {
     }
     if (node.type === "condition") {
       node.matchType = node.matchType === "any" ? "any" : "all";
-      node.rules = Array.isArray(node.rules) ? node.rules : [];
+      const rawRules = Array.isArray(node.rules) ? node.rules : [];
+      if (!rawRules.length && node.rule) {
+        rawRules.push(node.rule);
+      }
+      node.rules = rawRules.map(normalizeRule).filter(Boolean);
     }
   });
 
@@ -206,6 +210,33 @@ function saveFlow() {
 function scheduleAutoSave() {
   if (autoSaveTimer) clearTimeout(autoSaveTimer);
   autoSaveTimer = setTimeout(saveFlow, AUTO_SAVE_MS);
+}
+
+function normalizeRule(rule) {
+  if (!rule) return null;
+  if (typeof rule === "string") {
+    return { type: "text", label: rule };
+  }
+  if (rule.type === "tag") {
+    return {
+      type: "tag",
+      op: rule.op === "is_not" ? "is_not" : "is",
+      tag: rule.tag || "",
+    };
+  }
+  if (rule.label) {
+    return { type: "text", label: rule.label };
+  }
+  return null;
+}
+
+function formatRule(rule) {
+  if (!rule) return "";
+  if (rule.type === "tag") {
+    const opLabel = rule.op === "is_not" ? "nao e" : "esta";
+    return `Tag ${opLabel} ${rule.tag || ""}`.trim();
+  }
+  return rule.label || "";
 }
 
 function clampZoom(value) {
@@ -340,35 +371,25 @@ function renderConditionNode(node) {
   list.className = "flow-condition-list";
 
   const rules = Array.isArray(node.rules) ? node.rules : [];
-  if (!rules.length && node.rule) {
-    rules.push(node.rule);
-    node.rules = rules;
-  }
-
-  const addRulePrompt = () => {
-    const value = window.prompt("Defina a condicao");
-    if (value === null) return;
-    const rule = value.trim();
-    if (!rule) return;
-    node.rules = Array.isArray(node.rules) ? node.rules : [];
-    node.rules.push(rule);
-    renderAll();
-    scheduleAutoSave();
+  const openPopup = (event) => {
+    if (event) event.stopPropagation();
+    popup.dataset.view = "root";
+    popup.classList.add("open");
   };
 
   if (!rules.length) {
     const placeholder = document.createElement("button");
     placeholder.type = "button";
     placeholder.className = "flow-placeholder";
-    placeholder.textContent = "Clique para adicionar uma condicao";
-    placeholder.addEventListener("click", addRulePrompt);
+    placeholder.textContent = "Clique para escolher uma condicao";
+    placeholder.addEventListener("click", openPopup);
     list.appendChild(placeholder);
   } else {
     rules.forEach((rule, index) => {
       const item = document.createElement("div");
       item.className = "flow-condition-item";
       const text = document.createElement("span");
-      text.textContent = rule;
+      text.textContent = formatRule(rule);
       const remove = document.createElement("button");
       remove.type = "button";
       remove.className = "ghost";
@@ -389,10 +410,115 @@ function renderConditionNode(node) {
   addRuleButton.type = "button";
   addRuleButton.className = "flow-add-rule";
   addRuleButton.textContent = "Adicionar condicao";
-  addRuleButton.addEventListener("click", addRulePrompt);
+  addRuleButton.addEventListener("click", openPopup);
 
   body.appendChild(list);
   body.appendChild(addRuleButton);
+
+  const popup = document.createElement("div");
+  popup.className = "condition-popup";
+  popup.dataset.view = "root";
+  const popupHeader = document.createElement("div");
+  popupHeader.className = "condition-popup-header";
+  popupHeader.textContent = "Escolha uma condicao";
+
+  const rootView = document.createElement("div");
+  rootView.className = "condition-popup-root";
+  const tagOption = document.createElement("button");
+  tagOption.type = "button";
+  tagOption.textContent = "Tag";
+  tagOption.addEventListener("click", () => {
+    renderTagList();
+    popup.dataset.view = "tag";
+  });
+  rootView.appendChild(tagOption);
+
+  const tagView = document.createElement("div");
+  tagView.className = "condition-popup-tag";
+  const tagHeader = document.createElement("div");
+  tagHeader.className = "condition-popup-title";
+  const backBtn = document.createElement("button");
+  backBtn.type = "button";
+  backBtn.className = "ghost";
+  backBtn.textContent = "Voltar";
+  backBtn.addEventListener("click", () => {
+    popup.dataset.view = "root";
+  });
+  const tagTitle = document.createElement("span");
+  tagTitle.textContent = "Tag";
+  tagHeader.appendChild(backBtn);
+  tagHeader.appendChild(tagTitle);
+
+  const columns = document.createElement("div");
+  columns.className = "condition-popup-columns";
+  const opList = document.createElement("div");
+  opList.className = "condition-op-list";
+  let selectedOp = "is";
+  const buildOpButton = (value, label) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = label;
+    if (selectedOp === value) {
+      btn.classList.add("active");
+    }
+    btn.addEventListener("click", () => {
+      selectedOp = value;
+      Array.from(opList.querySelectorAll("button")).forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+    });
+    return btn;
+  };
+  opList.appendChild(buildOpButton("is", "esta"));
+  opList.appendChild(buildOpButton("is_not", "nao e"));
+
+  const tagPanel = document.createElement("div");
+  tagPanel.className = "condition-tag-panel";
+  const search = document.createElement("input");
+  search.type = "search";
+  search.placeholder = "Buscar tag";
+  const tagList = document.createElement("div");
+  tagList.className = "condition-tag-list";
+
+  const renderTagList = () => {
+    tagList.innerHTML = "";
+    const term = search.value.trim().toLowerCase();
+    const tags = state.tags.filter((tag) => tag.toLowerCase().includes(term));
+    if (!tags.length) {
+      const empty = document.createElement("div");
+      empty.className = "hint";
+      empty.textContent = "Nenhuma tag criada.";
+      tagList.appendChild(empty);
+      return;
+    }
+    tags.forEach((tag) => {
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = "condition-tag-item";
+      item.innerHTML = `<span>${tag}</span><span class="count">0</span>`;
+      item.addEventListener("click", () => {
+        node.rules = Array.isArray(node.rules) ? node.rules : [];
+        node.rules.push({ type: "tag", op: selectedOp, tag });
+        popup.classList.remove("open");
+        renderAll();
+        scheduleAutoSave();
+      });
+      tagList.appendChild(item);
+    });
+  };
+  search.addEventListener("input", renderTagList);
+  renderTagList();
+  tagPanel.appendChild(search);
+  tagPanel.appendChild(tagList);
+
+  columns.appendChild(opList);
+  columns.appendChild(tagPanel);
+  tagView.appendChild(tagHeader);
+  tagView.appendChild(columns);
+
+  popup.appendChild(popupHeader);
+  popup.appendChild(rootView);
+  popup.appendChild(tagView);
+  body.appendChild(popup);
 
   const connectorIn = document.createElement("div");
   connectorIn.className = "connector in";
@@ -978,6 +1104,14 @@ document.addEventListener("click", (event) => {
   if (!blockPicker || !blockPicker.classList.contains("open")) return;
   if (blockPicker.contains(event.target)) return;
   closeBlockPicker();
+});
+
+document.addEventListener("click", (event) => {
+  const popup = event.target.closest(".condition-popup");
+  if (popup) return;
+  document.querySelectorAll(".condition-popup.open").forEach((node) => {
+    node.classList.remove("open");
+  });
 });
 
 ensureSession().then((ok) => {

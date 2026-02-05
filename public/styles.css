@@ -707,6 +707,129 @@ body.canva-page main.layout {
   color: var(--accent-dark);
 }
 
+.condition-popup {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  top: 96px;
+  display: none;
+  background: #fff;
+  border: 1px solid var(--wa-border);
+  border-radius: 12px;
+  padding: 10px;
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.12);
+  z-index: 5;
+  gap: 10px;
+}
+
+.condition-popup.open {
+  display: grid;
+}
+
+.condition-popup-header {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.condition-popup-root {
+  display: grid;
+  gap: 6px;
+}
+
+.condition-popup-root button {
+  margin-top: 0;
+  border: 1px solid var(--wa-border);
+  background: #f8faf9;
+  border-radius: 10px;
+  padding: 8px 10px;
+  text-align: left;
+  font-weight: 600;
+}
+
+.condition-popup-tag {
+  display: none;
+  gap: 10px;
+}
+
+.condition-popup[data-view="tag"] .condition-popup-tag {
+  display: grid;
+}
+
+.condition-popup[data-view="tag"] .condition-popup-root {
+  display: none;
+}
+
+.condition-popup-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+}
+
+.condition-popup-columns {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 8px;
+}
+
+.condition-op-list {
+  display: grid;
+  gap: 6px;
+}
+
+.condition-op-list button {
+  margin-top: 0;
+  border: 1px solid var(--wa-border);
+  background: #fff;
+  border-radius: 10px;
+  padding: 8px;
+  text-align: left;
+}
+
+.condition-op-list button.active {
+  border-color: #25d366;
+  background: #e9f7ef;
+  color: #0b5b4b;
+}
+
+.condition-tag-panel {
+  display: grid;
+  gap: 6px;
+}
+
+.condition-tag-panel input {
+  border-radius: 10px;
+}
+
+.condition-tag-list {
+  border: 1px solid var(--wa-border);
+  border-radius: 10px;
+  max-height: 140px;
+  overflow: auto;
+  padding: 6px;
+  display: grid;
+  gap: 6px;
+}
+
+.condition-tag-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 13px;
+  text-align: left;
+}
+
+.condition-tag-item .count {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .flow-zoom {
   position: sticky;
   top: 12px;
