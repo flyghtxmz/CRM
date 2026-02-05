@@ -139,7 +139,7 @@ function findNextEdge(edges: FlowEdge[], from: string, branch: string) {
   );
 }
 
-async function sendTextMessage(env: Env, to: string, text: string) {
+async function sendTextMessage(env: Env, to: string, text: string, preview = false) {
   const token = requireEnv(env, "WHATSAPP_TOKEN");
   const phoneNumberId = requireEnv(env, "WHATSAPP_PHONE_NUMBER_ID");
   const version = apiVersion(env);
@@ -147,7 +147,7 @@ async function sendTextMessage(env: Env, to: string, text: string) {
     messaging_product: "whatsapp",
     to,
     type: "text",
-    text: { body: text },
+    text: { body: text, preview_url: preview },
   };
   await callGraph(`${phoneNumberId}/messages`, token, body, version);
 }
@@ -199,7 +199,7 @@ async function runFlow(
         const text = url ? `${body}\n${url}`.trim() : body;
         if (text) {
           try {
-            await sendTextMessage(env, contact.wa_id, text);
+            await sendTextMessage(env, contact.wa_id, text, node.type === "message_link");
             logNotes.push(`msg:${node.id}:ok`);
           } catch {
             // ignore send errors (24h window, etc.)
