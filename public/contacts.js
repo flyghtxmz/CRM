@@ -5,6 +5,8 @@ const searchInput = document.getElementById("contact-search");
 const refreshButton = document.getElementById("contact-refresh");
 
 let contacts = [];
+const autoRefreshIntervalMs = 4000;
+let autoRefreshTimer = null;
 
 async function ensureSession() {
   try {
@@ -141,6 +143,18 @@ function applySearch() {
   renderContacts(filtered);
 }
 
+async function refreshNow() {
+  contacts = await fetchContacts();
+  applySearch();
+}
+
+function startAutoRefresh() {
+  if (autoRefreshTimer) {
+    clearInterval(autoRefreshTimer);
+  }
+  autoRefreshTimer = setInterval(refreshNow, autoRefreshIntervalMs);
+}
+
 if (logoutButton) {
   logoutButton.addEventListener("click", async () => {
     try {
@@ -161,15 +175,19 @@ if (searchInput) {
 }
 
 if (refreshButton) {
-  refreshButton.addEventListener("click", async () => {
-    contacts = await fetchContacts();
-    applySearch();
-  });
+  refreshButton.addEventListener("click", refreshNow);
 }
 
 ensureSession().then(async (ok) => {
   if (ok) {
-    contacts = await fetchContacts();
-    renderContacts(contacts);
+    await refreshNow();
+    startAutoRefresh();
+  }
+});
+
+window.addEventListener("focus", refreshNow);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") {
+    refreshNow();
   }
 });
