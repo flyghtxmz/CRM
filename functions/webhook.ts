@@ -45,6 +45,8 @@ type FlowNode = {
   trigger?: string;
   rules?: Array<{ type?: string; op?: string; tag?: string }>;
   action?: { type?: string; tag?: string };
+  body?: string;
+  url?: string;
 };
 
 type Flow = {
@@ -191,11 +193,13 @@ async function runFlow(
           logNotes.push(`acao:tag:${node.action.tag || ""}`);
         }
       }
-      if (node.type === "message") {
+      if (node.type === "message" || node.type === "message_link") {
         const body = String(node.body || "").trim();
-        if (body) {
+        const url = node.type === "message_link" ? String(node.url || "").trim() : "";
+        const text = url ? `${body}\n${url}`.trim() : body;
+        if (text) {
           try {
-            await sendTextMessage(env, contact.wa_id, body);
+            await sendTextMessage(env, contact.wa_id, text);
             logNotes.push(`msg:${node.id}:ok`);
           } catch {
             // ignore send errors (24h window, etc.)

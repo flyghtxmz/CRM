@@ -34,6 +34,7 @@ let autoSaveTimer = null;
 const blockPresets = {
   start: { title: "Quando", body: "" },
   message: { title: "Mensagem", body: "Texto da mensagem" },
+  message_link: { title: "Mensagem com link", body: "Texto da mensagem", url: "" },
   question: { title: "Pergunta", body: "Pergunta para o cliente" },
   tag: { title: "Tag", body: "Aplicar tag" },
   delay: { title: "Delay", body: "Esperar" },
@@ -44,6 +45,7 @@ const blockPresets = {
 const blockOptions = [
   { type: "start", label: "Quando" },
   { type: "message", label: "Mensagem" },
+  { type: "message_link", label: "Mensagem com link" },
   { type: "question", label: "Pergunta" },
   { type: "tag", label: "Tag" },
   { type: "delay", label: "Delay" },
@@ -744,6 +746,95 @@ function renderActionNode(node) {
   enableDrag(el, node);
 }
 
+function renderLinkMessageNode(node) {
+  if (!surface) return;
+  const el = document.createElement("div");
+  el.className = "flow-node flow-node-message-link";
+  el.dataset.nodeId = node.id;
+  el.style.left = `${node.x}px`;
+  el.style.top = `${node.y}px`;
+
+  const header = document.createElement("div");
+  header.className = "flow-node-header";
+  const title = document.createElement("input");
+  title.type = "text";
+  title.value = node.title || "Mensagem com link";
+  title.addEventListener("change", () => {
+    node.title = title.value;
+    scheduleAutoSave();
+  });
+  header.appendChild(title);
+  const deleteBtn = document.createElement("button");
+  deleteBtn.type = "button";
+  deleteBtn.textContent = "Excluir";
+  deleteBtn.addEventListener("click", () => {
+    state.nodes = state.nodes.filter((n) => n.id !== node.id);
+    state.edges = state.edges.filter((edge) => edge.from !== node.id && edge.to !== node.id);
+    renderAll();
+    scheduleAutoSave();
+  });
+  header.appendChild(deleteBtn);
+
+  const body = document.createElement("div");
+  body.className = "flow-node-body";
+  const textarea = document.createElement("textarea");
+  textarea.rows = 3;
+  textarea.placeholder = "Texto da mensagem";
+  textarea.value = node.body || "";
+  textarea.addEventListener("change", () => {
+    node.body = textarea.value;
+    scheduleAutoSave();
+  });
+  const url = document.createElement("input");
+  url.type = "url";
+  url.placeholder = "https://seusite.com";
+  url.value = node.url || "";
+  url.addEventListener("change", () => {
+    node.url = url.value;
+    scheduleAutoSave();
+  });
+  body.appendChild(textarea);
+  body.appendChild(url);
+
+  const connectorOut = document.createElement("div");
+  connectorOut.className = "connector out";
+  connectorOut.title = "Saida";
+  connectorOut.addEventListener("click", () => {
+    linkFromId = node.id;
+    linkFromBranch = "default";
+    clearLinking();
+    el.classList.add("linking");
+  });
+
+  const connectorIn = document.createElement("div");
+  connectorIn.className = "connector in";
+  connectorIn.title = "Entrada";
+  connectorIn.addEventListener("click", () => {
+    if (!linkFromId || linkFromId === node.id) return;
+    const branch = linkFromBranch || "default";
+    const exists = state.edges.some(
+      (edge) =>
+        edge.from === linkFromId &&
+        edge.to === node.id &&
+        (edge.branch || "default") === branch,
+    );
+    if (!exists) {
+      state.edges.push({ id: makeId("edge"), from: linkFromId, to: node.id, branch });
+      renderEdges();
+      scheduleAutoSave();
+    }
+    linkFromId = null;
+    resetLinking();
+  });
+
+  el.appendChild(header);
+  el.appendChild(body);
+  el.appendChild(connectorIn);
+  el.appendChild(connectorOut);
+  surface.appendChild(el);
+  enableDrag(el, node);
+}
+
 function renderNodes() {
   if (!surface) return;
   const existing = surface.querySelectorAll(".flow-node");
@@ -760,6 +851,10 @@ function renderNodes() {
     }
     if (node.type === "action") {
       renderActionNode(node);
+      return;
+    }
+    if (node.type === "message_link") {
+      renderLinkMessageNode(node);
       return;
     }
     const el = document.createElement("div");
@@ -968,6 +1063,9 @@ function addBlockAt(type, x, y) {
   if (type === "action") {
     node.action = null;
     node.tags = [];
+  }
+  if (type === "message_link") {
+    node.url = "";
   }
   state.nodes.push(node);
   renderAll();

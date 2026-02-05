@@ -1013,7 +1013,7 @@ body.canva-page main.layout {
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
   z-index: 2;
   will-change: transform;
-}
+}`n`n.flow-node-message-link .flow-node-body {`n  display: grid;`n  gap: 8px;`n}`n
 
 .flow-node-header {
   display: flex;
@@ -1659,5 +1659,7 @@ body.canva-page main.layout {
     max-width: none;
   }
 }
+
+
 
 
