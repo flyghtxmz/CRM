@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Botzap CRM - Fluxos</title>
+    <meta name="description" content="Botzap CRM - Lista de fluxos" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body class="flows-page">
+    <header class="topbar">
+      <div>
+        <div class="brand">Botzap CRM</div>
+        <div class="subtitle">Fluxos <span class="version">v0.09</span></div>
+      </div>
+      <div class="topbar-actions">
+        <a class="ghost link" href="/app.html">Conversas</a>
+        <a class="ghost link" href="/tools.html">Ferramentas</a>
+        <button id="logout" class="ghost" type="button">Sair</button>
+      </div>
+    </header>
+
+    <main class="layout flows-layout">
+      <section class="card flow-list-card">
+        <div class="flow-list-header">
+          <div>
+            <h1>Seus fluxos</h1>
+            <p class="hint">Crie, edite e organize seus fluxos antes de abrir o canva.</p>
+          </div>
+          <button id="create-flow" type="button" class="button-link">Criar novo fluxo</button>
+        </div>
+
+        <div id="flow-list" class="flow-list"></div>
+      </section>
+    </main>
+
+    <script src="/flows.js"></script>
+  </body>
+</html>

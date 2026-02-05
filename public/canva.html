@@ -11,10 +11,11 @@
     <header class="topbar">
       <div>
         <div class="brand">Botzap CRM</div>
-        <div class="subtitle">Canva de Fluxos <span class="version">v0.08</span></div>
+        <div class="subtitle">Canva de Fluxos <span class="version">v0.09</span></div>
       </div>
       <div class="topbar-actions">
         <a class="ghost link" href="/app.html">Conversas</a>
+        <a class="ghost link" href="/flows.html">Fluxos</a>
         <a class="ghost link" href="/tools.html">Ferramentas</a>
         <button id="logout" class="ghost" type="button">Sair</button>
       </div>
@@ -23,6 +24,10 @@
     <main class="layout flow-layout">
       <section class="flow-shell">
         <aside class="flow-sidebar">
+          <div class="flow-section">
+            <h1>Nome do fluxo</h1>
+            <input id="flow-name" type="text" placeholder="Ex: Fluxo boas-vindas" />
+          </div>
           <div class="flow-section">
             <h1>Blocos</h1>
             <div class="flow-blocks">

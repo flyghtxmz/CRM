@@ -502,6 +502,63 @@ body.canva-page main.layout {
   height: calc(100vh - var(--topbar-height));
 }
 
+.flows-page {
+  background: var(--wa-bg);
+  min-height: 100vh;
+}
+
+.flows-page main.layout {
+  max-width: 1100px;
+}
+
+.flow-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.flow-list {
+  display: grid;
+  gap: 12px;
+}
+
+.flow-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--wa-border);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.flow-list-info {
+  display: grid;
+  gap: 4px;
+}
+
+.flow-list-name {
+  font-weight: 700;
+}
+
+.flow-list-meta {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.flow-list-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.flow-list-actions button {
+  margin-top: 0;
+}
+
 .flow-shell {
   display: grid;
   grid-template-columns: 300px 1fr;
@@ -743,6 +800,16 @@ body.canva-page main.layout {
 
   .flow-canvas {
     min-height: 70vh;
+  }
+
+  .flow-list-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .flow-list-item {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
 

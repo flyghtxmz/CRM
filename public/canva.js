@@ -8,11 +8,14 @@ const exportButton = document.getElementById("export-flow");
 const resetButton = document.getElementById("reset-flow");
 const surface = document.getElementById("flow-surface");
 const svg = document.getElementById("flow-links");
+const flowNameInput = document.getElementById("flow-name");
 
-const STATE_KEY = "botzap_flow_state_v1";
+const FLOW_STORAGE_KEY = "botzap_flows_v1";
 const AUTO_SAVE_MS = 5000;
 
 let state = {
+  flowId: null,
+  flowName: "",
   nodes: [],
   edges: [],
   tags: [],
@@ -56,74 +59,113 @@ async function ensureSession() {
   }
 }
 
-function loadState() {
-  const raw = localStorage.getItem(STATE_KEY);
-  if (raw) {
-    try {
-      const data = JSON.parse(raw);
-      if (data && typeof data === "object") {
-        state = {
-          nodes: Array.isArray(data.nodes) ? data.nodes : [],
-          edges: Array.isArray(data.edges) ? data.edges : [],
-          tags: Array.isArray(data.tags) ? data.tags : [],
-        };
-        return;
-      }
-    } catch {
-      // ignore
-    }
+function loadFlows() {
+  const raw = localStorage.getItem(FLOW_STORAGE_KEY);
+  if (!raw) return [];
+  try {
+    const data = JSON.parse(raw);
+    if (Array.isArray(data)) return data;
+  } catch {
+    // ignore
   }
-  seedDefault();
+  return [];
 }
 
-function saveState() {
-  localStorage.setItem(STATE_KEY, JSON.stringify(state));
+function saveFlows(flows) {
+  localStorage.setItem(FLOW_STORAGE_KEY, JSON.stringify(flows));
+}
+
+function defaultData() {
+  const startId = makeId("node");
+  const messageId = makeId("node");
+  return {
+    tags: ["lead"],
+    nodes: [
+      {
+        id: startId,
+        type: "start",
+        title: "Inicio",
+        body: "Mensagem recebida",
+        x: 120,
+        y: 120,
+        tags: [],
+      },
+      {
+        id: messageId,
+        type: "message",
+        title: "Mensagem",
+        body: "Ola! Em que posso ajudar?",
+        x: 420,
+        y: 120,
+        tags: ["lead"],
+      },
+    ],
+    edges: [{ id: makeId("edge"), from: startId, to: messageId }],
+  };
+}
+
+function loadFlow() {
+  const flowId = new URLSearchParams(window.location.search).get("id");
+  if (!flowId) {
+    window.location.href = "/flows.html";
+    return false;
+  }
+
+  const flows = loadFlows();
+  const flow = flows.find((item) => item.id === flowId);
+  if (!flow) {
+    window.location.href = "/flows.html";
+    return false;
+  }
+
+  const data = flow.data || {};
+  state = {
+    flowId: flow.id,
+    flowName: flow.name || "Fluxo sem nome",
+    nodes: Array.isArray(data.nodes) ? data.nodes : [],
+    edges: Array.isArray(data.edges) ? data.edges : [],
+    tags: Array.isArray(data.tags) ? data.tags : [],
+  };
+
+  if (!state.nodes.length) {
+    const seeded = defaultData();
+    state.nodes = seeded.nodes;
+    state.edges = seeded.edges;
+    state.tags = seeded.tags;
+  }
+
+  if (flowNameInput) {
+    flowNameInput.value = state.flowName;
+  }
+
+  return true;
+}
+
+function saveFlow() {
+  if (!state.flowId) return;
+  const flows = loadFlows();
+  const idx = flows.findIndex((item) => item.id === state.flowId);
+  const payload = {
+    id: state.flowId,
+    name: state.flowName || "Fluxo sem nome",
+    updatedAt: Date.now(),
+    data: {
+      nodes: state.nodes,
+      edges: state.edges,
+      tags: state.tags,
+    },
+  };
+  if (idx >= 0) {
+    flows[idx] = payload;
+  } else {
+    flows.unshift(payload);
+  }
+  saveFlows(flows);
 }
 
 function scheduleAutoSave() {
   if (autoSaveTimer) clearTimeout(autoSaveTimer);
-  autoSaveTimer = setTimeout(saveState, AUTO_SAVE_MS);
-}
-
-function seedDefault() {
-  state.tags = ["lead", "vip"];
-  state.nodes = [
-    {
-      id: makeId("node"),
-      type: "start",
-      title: "Inicio",
-      body: "Mensagem recebida",
-      x: 120,
-      y: 120,
-      tags: [],
-    },
-    {
-      id: makeId("node"),
-      type: "message",
-      title: "Mensagem",
-      body: "Ola! Em que posso ajudar?",
-      x: 420,
-      y: 120,
-      tags: ["lead"],
-    },
-    {
-      id: makeId("node"),
-      type: "question",
-      title: "Pergunta",
-      body: "Qual o tipo de servico?",
-      x: 720,
-      y: 120,
-      tags: [],
-    },
-  ];
-  state.edges = [
-    { id: makeId("edge"), from: state.nodes[0].id, to: state.nodes[1].id },
-    { id: makeId("edge"), from: state.nodes[1].id, to: state.nodes[2].id },
-  ];
-}
-
-function getNodeById(id) {
-  return state.nodes.find((node) => node.id === id);
+  autoSaveTimer = setTimeout(saveFlow, AUTO_SAVE_MS);
 }
 
 function renderTags() {
@@ -381,7 +423,17 @@ function addBlock(type) {
 }
 
 function exportJson() {
-  const data = JSON.stringify(state, null, 2);
+  const payload = {
+    id: state.flowId,
+    name: state.flowName,
+    updatedAt: Date.now(),
+    data: {
+      nodes: state.nodes,
+      edges: state.edges,
+      tags: state.tags,
+    },
+  };
+  const data = JSON.stringify(payload, null, 2);
   const blob = new Blob([data], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -431,7 +483,7 @@ if (tagForm) {
 
 if (saveButton) {
   saveButton.addEventListener("click", () => {
-    saveState();
+    saveFlow();
   });
 }
 
@@ -441,18 +493,26 @@ if (exportButton) {
 
 if (resetButton) {
   resetButton.addEventListener("click", () => {
-    state = { nodes: [], edges: [], tags: [] };
-    seedDefault();
+    const seeded = defaultData();
+    state.nodes = seeded.nodes;
+    state.edges = seeded.edges;
+    state.tags = seeded.tags;
     renderAll();
-    saveState();
+    saveFlow();
+  });
+}
+
+if (flowNameInput) {
+  flowNameInput.addEventListener("change", () => {
+    state.flowName = flowNameInput.value.trim() || "Fluxo sem nome";
+    saveFlow();
   });
 }
 
 window.addEventListener("resize", renderEdges);
 
 ensureSession().then((ok) => {
-  if (ok) {
-    loadState();
+  if (ok && loadFlow()) {
     renderAll();
   }
 });
