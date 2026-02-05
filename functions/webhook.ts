@@ -7,6 +7,7 @@ type Conversation = {
   last_timestamp?: string | number;
   last_type?: string;
   last_direction?: "in" | "out";
+  last_status?: string;
 };
 
 type StoredMessage = {
@@ -17,6 +18,7 @@ type StoredMessage = {
   text?: string;
   name?: string;
   direction?: "in" | "out";
+  status?: string;
 };
 
 function messagePreview(message: any) {
@@ -88,44 +90,85 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   const change = entry?.changes?.[0];
   const value = change?.value || {};
   const messages = value.messages || [];
+  const statuses = value.statuses || [];
   const contacts = value.contacts || [];
 
-  const index = (await kv.get("conversations:index", "json")) as Conversation[] | null;
-  const list: Conversation[] = Array.isArray(index) ? index : [];
+  if (messages.length > 0) {
+    const index = (await kv.get("conversations:index", "json")) as Conversation[] | null;
+    const list: Conversation[] = Array.isArray(index) ? index : [];
 
-  for (const message of messages) {
-    const waId = message.from;
-    if (!waId) continue;
-    const contact = contacts.find((c: any) => c.wa_id === waId);
-    const name = contact?.profile?.name;
+    for (const message of messages) {
+      const waId = message.from;
+      if (!waId) continue;
+      const contact = contacts.find((c: any) => c.wa_id === waId);
+      const name = contact?.profile?.name;
 
-    const conversation: Conversation = {
-      wa_id: waId,
-      name,
-      last_message: messagePreview(message),
-      last_timestamp: message.timestamp,
-      last_type: message.type,
-      last_direction: "in",
-    };
+      const conversation: Conversation = {
+        wa_id: waId,
+        name,
+        last_message: messagePreview(message),
+        last_timestamp: message.timestamp,
+        last_type: message.type,
+        last_direction: "in",
+      };
 
-    await upsertConversation(kv, list, conversation);
+      await upsertConversation(kv, list, conversation);
 
-    const threadKey = `thread:${waId}`;
-    const thread = (await kv.get(threadKey, "json")) as StoredMessage[] | null;
-    const threadList: StoredMessage[] = Array.isArray(thread) ? thread : [];
-    threadList.push({
-      id: message.id,
-      from: waId,
-      timestamp: message.timestamp,
-      type: message.type,
-      text: messagePreview(message),
-      name,
-      direction: "in",
-    });
-    if (threadList.length > 50) {
-      threadList.splice(0, threadList.length - 50);
+      const threadKey = `thread:${waId}`;
+      const thread = (await kv.get(threadKey, "json")) as StoredMessage[] | null;
+      const threadList: StoredMessage[] = Array.isArray(thread) ? thread : [];
+      threadList.push({
+        id: message.id,
+        from: waId,
+        timestamp: message.timestamp,
+        type: message.type,
+        text: messagePreview(message),
+        name,
+        direction: "in",
+      });
+      if (threadList.length > 50) {
+        threadList.splice(0, threadList.length - 50);
+      }
+      await kv.put(threadKey, JSON.stringify(threadList));
     }
-    await kv.put(threadKey, JSON.stringify(threadList));
+  }
+
+  if (statuses.length > 0) {
+    const index = (await kv.get("conversations:index", "json")) as Conversation[] | null;
+    const list: Conversation[] = Array.isArray(index) ? index : [];
+    let listChanged = false;
+
+    for (const status of statuses) {
+      const waId = status.recipient_id;
+      const statusValue = status.status;
+      if (!waId || !statusValue) continue;
+
+      const threadKey = `thread:${waId}`;
+      const thread = (await kv.get(threadKey, "json")) as StoredMessage[] | null;
+      if (Array.isArray(thread)) {
+        let updated = false;
+        for (let i = thread.length - 1; i >= 0; i -= 1) {
+          if (thread[i].id === status.id) {
+            thread[i].status = statusValue;
+            updated = true;
+            break;
+          }
+        }
+        if (updated) {
+          await kv.put(threadKey, JSON.stringify(thread));
+        }
+      }
+
+      const convo = list.find((item) => item.wa_id === waId);
+      if (convo && convo.last_direction === "out") {
+        convo.last_status = statusValue;
+        listChanged = true;
+      }
+    }
+
+    if (listChanged) {
+      await kv.put("conversations:index", JSON.stringify(list));
+    }
   }
 
   return new Response("OK", { status: 200 });

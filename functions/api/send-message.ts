@@ -12,6 +12,7 @@ type Conversation = {
   last_timestamp?: string | number;
   last_type?: string;
   last_direction?: "in" | "out";
+  last_status?: string;
 };
 
 type StoredMessage = {
@@ -22,6 +23,7 @@ type StoredMessage = {
   text?: string;
   name?: string;
   direction?: "in" | "out";
+  status?: string;
 };
 
 function nowUnix() {
@@ -71,6 +73,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         last_timestamp: nowUnix(),
         last_type: "text",
         last_direction: "out",
+        last_status: "sent",
       };
 
       const filtered = list.filter((item) => item.wa_id !== to);
@@ -89,6 +92,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         type: "text",
         text: message,
         direction: "out",
+        status: "sent",
       });
       if (threadList.length > 50) {
         threadList.splice(0, threadList.length - 50);
