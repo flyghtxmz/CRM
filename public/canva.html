@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Botzap CRM - Canva</title>
+    <meta name="description" content="Botzap CRM - Canva de Fluxos" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body class="canva-page">
+    <header class="topbar">
+      <div>
+        <div class="brand">Botzap CRM</div>
+        <div class="subtitle">Canva de Fluxos <span class="version">v0.08</span></div>
+      </div>
+      <div class="topbar-actions">
+        <a class="ghost link" href="/app.html">Conversas</a>
+        <a class="ghost link" href="/tools.html">Ferramentas</a>
+        <button id="logout" class="ghost" type="button">Sair</button>
+      </div>
+    </header>
+
+    <main class="layout flow-layout">
+      <section class="flow-shell">
+        <aside class="flow-sidebar">
+          <div class="flow-section">
+            <h1>Blocos</h1>
+            <div class="flow-blocks">
+              <button type="button" class="block-btn" data-block="start">Inicio</button>
+              <button type="button" class="block-btn" data-block="message">Mensagem</button>
+              <button type="button" class="block-btn" data-block="question">Pergunta</button>
+              <button type="button" class="block-btn" data-block="tag">Tag</button>
+              <button type="button" class="block-btn" data-block="delay">Delay</button>
+              <button type="button" class="block-btn" data-block="condition">Condicao</button>
+            </div>
+            <p class="hint">Clique em um bloco para adicionar no canva.</p>
+          </div>
+
+          <div class="flow-section">
+            <h1>Tags</h1>
+            <form id="tag-form" class="tag-form">
+              <input id="tag-input" type="text" placeholder="Nova tag" />
+              <button type="submit">Adicionar</button>
+            </form>
+            <div id="tag-list" class="tag-list"></div>
+          </div>
+
+          <div class="flow-section flow-actions">
+            <button id="save-flow" type="button">Salvar</button>
+            <button id="export-flow" type="button" class="ghost">Exportar JSON</button>
+            <button id="reset-flow" type="button" class="ghost">Limpar canva</button>
+            <p class="hint">Salva localmente no navegador.</p>
+          </div>
+        </aside>
+
+        <section class="flow-canvas" id="flow-canvas">
+          <div class="flow-surface" id="flow-surface">
+            <svg id="flow-links" class="flow-links" aria-hidden="true"></svg>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <script src="/canva.js"></script>
+  </body>
+</html>
