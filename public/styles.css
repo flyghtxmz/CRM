@@ -830,6 +830,98 @@ body.canva-page main.layout {
   font-size: 12px;
 }
 
+.action-popup {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  top: 96px;
+  display: none;
+  background: #fff;
+  border: 1px solid var(--wa-border);
+  border-radius: 12px;
+  padding: 10px;
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.12);
+  z-index: 5;
+  gap: 10px;
+}
+
+.action-popup.open {
+  display: grid;
+}
+
+.action-popup-header {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.action-popup-root {
+  display: grid;
+  gap: 6px;
+}
+
+.action-popup-root button {
+  margin-top: 0;
+  border: 1px solid var(--wa-border);
+  background: #f8faf9;
+  border-radius: 10px;
+  padding: 8px 10px;
+  text-align: left;
+  font-weight: 600;
+}
+
+.action-popup-tag {
+  display: none;
+  gap: 10px;
+}
+
+.action-popup[data-view="tag"] .action-popup-tag {
+  display: grid;
+}
+
+.action-popup[data-view="tag"] .action-popup-root {
+  display: none;
+}
+
+.action-popup-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+}
+
+.action-tag-panel {
+  display: grid;
+  gap: 6px;
+}
+
+.action-tag-panel input {
+  border-radius: 10px;
+}
+
+.action-tag-list {
+  border: 1px solid var(--wa-border);
+  border-radius: 10px;
+  max-height: 140px;
+  overflow: auto;
+  padding: 6px;
+  display: grid;
+  gap: 6px;
+}
+
+.action-tag-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 13px;
+  text-align: left;
+}
+
 .flow-zoom {
   position: sticky;
   top: 12px;

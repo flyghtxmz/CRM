@@ -154,9 +154,6 @@ function loadFlow() {
     if (node.type === "condition" && typeof node.rule !== "string") {
       node.rule = "";
     }
-    if (node.type === "action" && typeof node.action !== "string") {
-      node.action = "";
-    }
     if (node.type === "condition") {
       node.matchType = node.matchType === "any" ? "any" : "all";
       const rawRules = Array.isArray(node.rules) ? node.rules : [];
@@ -164,6 +161,14 @@ function loadFlow() {
         rawRules.push(node.rule);
       }
       node.rules = rawRules.map(normalizeRule).filter(Boolean);
+    }
+    if (node.type === "action") {
+      if (node.action && typeof node.action === "object") return;
+      if (typeof node.action === "string" && node.action.trim()) {
+        node.action = { type: "text", label: node.action.trim() };
+      } else {
+        node.action = null;
+      }
     }
   });
 
@@ -237,6 +242,14 @@ function formatRule(rule) {
     return `Tag ${opLabel} ${rule.tag || ""}`.trim();
   }
   return rule.label || "";
+}
+
+function formatAction(action) {
+  if (!action) return "";
+  if (action.type === "tag") {
+    return `Adicionar tag: ${action.tag || ""}`.trim();
+  }
+  return action.label || "";
 }
 
 function clampZoom(value) {
@@ -585,55 +598,55 @@ function renderActionNode(node) {
   const placeholder = document.createElement("button");
   placeholder.type = "button";
   placeholder.className = "flow-placeholder";
-  placeholder.textContent = node.action || "Clique para adicionar uma acao";
-  placeholder.addEventListener("click", () => {
-    const value = window.prompt("Defina a acao", node.action || "");
-    if (value === null) return;
-    node.action = value.trim();
-    renderAll();
-    scheduleAutoSave();
-  });
+  placeholder.textContent = formatAction(node.action) || "Clique para adicionar uma acao";
   body.appendChild(placeholder);
 
-  node.tags = Array.isArray(node.tags) ? node.tags : [];
-  const tagSection = document.createElement("div");
-  tagSection.className = "flow-action-tags";
-  const tagLabel = document.createElement("div");
-  tagLabel.className = "flow-action-label";
-  tagLabel.textContent = "Tags";
-  tagSection.appendChild(tagLabel);
+  const popup = document.createElement("div");
+  popup.className = "action-popup";
+  popup.dataset.view = "root";
+  const popupHeader = document.createElement("div");
+  popupHeader.className = "action-popup-header";
+  popupHeader.textContent = "Escolha uma acao";
 
-  const tagRow = document.createElement("div");
-  tagRow.className = "flow-tag-row";
-  const select = document.createElement("select");
-  const placeholderTag = document.createElement("option");
-  placeholderTag.value = "";
-  placeholderTag.textContent = "Adicionar tag";
-  select.appendChild(placeholderTag);
-  state.tags.forEach((tag) => {
-    const opt = document.createElement("option");
-    opt.value = tag;
-    opt.textContent = tag;
-    select.appendChild(opt);
+  const rootView = document.createElement("div");
+  rootView.className = "action-popup-root";
+  const tagOption = document.createElement("button");
+  tagOption.type = "button";
+  tagOption.textContent = "Adicionar tag";
+  tagOption.addEventListener("click", () => {
+    renderTagList();
+    popup.dataset.view = "tag";
   });
-  const addBtn = document.createElement("button");
-  addBtn.type = "button";
-  addBtn.textContent = "Adicionar";
-  addBtn.addEventListener("click", () => {
-    const value = select.value;
-    if (!value) return;
-    if (!node.tags.includes(value)) {
-      node.tags.push(value);
-      renderAll();
-      scheduleAutoSave();
-    }
-    select.value = "";
+  rootView.appendChild(tagOption);
+
+  const tagView = document.createElement("div");
+  tagView.className = "action-popup-tag";
+  const tagHeader = document.createElement("div");
+  tagHeader.className = "action-popup-title";
+  const backBtn = document.createElement("button");
+  backBtn.type = "button";
+  backBtn.className = "ghost";
+  backBtn.textContent = "Voltar";
+  backBtn.addEventListener("click", () => {
+    popup.dataset.view = "root";
   });
-  const createBtn = document.createElement("button");
-  createBtn.type = "button";
-  createBtn.className = "ghost";
-  createBtn.textContent = "Nova tag";
-  createBtn.addEventListener("click", () => {
+  const tagTitle = document.createElement("span");
+  tagTitle.textContent = "Tags";
+  tagHeader.appendChild(backBtn);
+  tagHeader.appendChild(tagTitle);
+
+  const tagPanel = document.createElement("div");
+  tagPanel.className = "action-tag-panel";
+  const search = document.createElement("input");
+  search.type = "search";
+  search.placeholder = "Buscar tag";
+  const tagList = document.createElement("div");
+  tagList.className = "action-tag-list";
+  const createTag = document.createElement("button");
+  createTag.type = "button";
+  createTag.className = "ghost";
+  createTag.textContent = "Nova tag";
+  createTag.addEventListener("click", () => {
     const value = window.prompt("Nome da nova tag");
     if (!value) return;
     const name = value.trim();
@@ -641,32 +654,57 @@ function renderActionNode(node) {
     if (!state.tags.includes(name)) {
       state.tags.push(name);
     }
-    if (!node.tags.includes(name)) {
-      node.tags.push(name);
-    }
+    node.action = { type: "tag", tag: name };
+    popup.classList.remove("open");
     renderAll();
     scheduleAutoSave();
   });
-  tagRow.appendChild(select);
-  tagRow.appendChild(addBtn);
-  tagRow.appendChild(createBtn);
-  tagSection.appendChild(tagRow);
 
-  const tagChips = document.createElement("div");
-  tagChips.className = "tag-chips";
-  node.tags.forEach((tag) => {
-    const chip = document.createElement("span");
-    chip.className = "tag-chip";
-    chip.textContent = tag;
-    chip.addEventListener("click", () => {
-      node.tags = node.tags.filter((t) => t !== tag);
-      renderAll();
-      scheduleAutoSave();
+  const renderTagList = () => {
+    tagList.innerHTML = "";
+    const term = search.value.trim().toLowerCase();
+    const tags = state.tags.filter((tag) => tag.toLowerCase().includes(term));
+    if (!tags.length) {
+      const empty = document.createElement("div");
+      empty.className = "hint";
+      empty.textContent = "Nenhuma tag criada.";
+      tagList.appendChild(empty);
+      return;
+    }
+    tags.forEach((tag) => {
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = "action-tag-item";
+      item.textContent = tag;
+      item.addEventListener("click", () => {
+        node.action = { type: "tag", tag };
+        popup.classList.remove("open");
+        renderAll();
+        scheduleAutoSave();
+      });
+      tagList.appendChild(item);
     });
-    tagChips.appendChild(chip);
-  });
-  tagSection.appendChild(tagChips);
-  body.appendChild(tagSection);
+  };
+  search.addEventListener("input", renderTagList);
+  renderTagList();
+  tagPanel.appendChild(search);
+  tagPanel.appendChild(tagList);
+  tagPanel.appendChild(createTag);
+
+  tagView.appendChild(tagHeader);
+  tagView.appendChild(tagPanel);
+
+  popup.appendChild(popupHeader);
+  popup.appendChild(rootView);
+  popup.appendChild(tagView);
+  body.appendChild(popup);
+
+  const openPopup = (event) => {
+    if (event) event.stopPropagation();
+    popup.dataset.view = "root";
+    popup.classList.add("open");
+  };
+  placeholder.addEventListener("click", openPopup);
 
   const footer = document.createElement("div");
   footer.className = "flow-node-footer";
@@ -1093,6 +1131,14 @@ document.addEventListener("click", (event) => {
   const popup = event.target.closest(".condition-popup");
   if (popup) return;
   document.querySelectorAll(".condition-popup.open").forEach((node) => {
+    node.classList.remove("open");
+  });
+});
+
+document.addEventListener("click", (event) => {
+  const popup = event.target.closest(".action-popup");
+  if (popup) return;
+  document.querySelectorAll(".action-popup.open").forEach((node) => {
     node.classList.remove("open");
   });
 });
