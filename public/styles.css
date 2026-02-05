@@ -35,6 +35,17 @@ header {
   margin-top: 4px;
 }
 
+.version {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #f3e6d5;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .ghost {
   position: absolute;
   right: 24px;
