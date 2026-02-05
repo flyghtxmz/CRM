@@ -972,6 +972,11 @@ body.canva-page main.layout {
   cursor: pointer;
 }
 
+.flow-edge.energy {
+  stroke-dasharray: 10 8;
+  animation: edgeFlow 2.8s linear infinite;
+}
+
 .flow-edge:hover {
   stroke: var(--accent-dark);
   stroke-width: 3;
@@ -983,6 +988,15 @@ body.canva-page main.layout {
 
 .flow-edge.edge-no {
   stroke: #e05656;
+}
+
+@keyframes edgeFlow {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: -36;
+  }
 }
 
 .flow-node {
@@ -1411,6 +1425,91 @@ body.canva-page main.layout {
   top: auto;
   bottom: 16px;
   transform: none;
+}
+
+.flow-condition-edit {
+  border: 1px dashed #b9e7cc;
+  background: #f1fbf5;
+  color: #1f3e32;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-weight: 600;
+  width: 100%;
+  text-align: left;
+  margin-top: 0;
+}
+
+.contacts-card h1 {
+  margin: 0;
+}
+
+.contacts-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.contacts-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.contacts-actions input {
+  min-width: 220px;
+}
+
+.contacts-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.contact-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 14px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: #fdfefe;
+}
+
+.contact-info {
+  display: grid;
+  gap: 6px;
+}
+
+.contact-name {
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.contact-meta {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.contact-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tag-pill {
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #daf7e6;
+  color: #146b46;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.tag-pill.muted {
+  background: #f1f4f2;
+  color: #6b7b74;
 }
 
 @media (max-width: 980px) {

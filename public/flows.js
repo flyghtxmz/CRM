@@ -31,7 +31,7 @@ async function ensureSession() {
   }
 }
 
-function loadFlows() {
+function loadLocalFlows() {
   const raw = localStorage.getItem(STORAGE_KEY);
   if (!raw) return [];
   try {
@@ -43,17 +43,12 @@ function loadFlows() {
   return [];
 }
 
-function saveFlows(flows) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(flows));
-}
-
-function migrateLegacyFlow(flows) {
-  if (flows.length) return flows;
+function loadLegacyFlow() {
   const raw = localStorage.getItem(LEGACY_KEY);
-  if (!raw) return flows;
+  if (!raw) return null;
   try {
     const data = JSON.parse(raw);
-    const flow = {
+    return {
       id: makeId("flow"),
       name: "Fluxo importado",
       enabled: true,
@@ -64,13 +59,57 @@ function migrateLegacyFlow(flows) {
         tags: Array.isArray(data.tags) ? data.tags : [],
       },
     };
-    const next = [flow];
-    saveFlows(next);
-    localStorage.removeItem(LEGACY_KEY);
-    return next;
   } catch {
-    return flows;
+    return null;
   }
+}
+
+async function fetchFlows() {
+  const res = await fetch("/api/flows", { credentials: "include" });
+  if (!res.ok) return [];
+  const data = await res.json();
+  if (!data || !data.ok) return [];
+  return Array.isArray(data.data) ? data.data : [];
+}
+
+async function saveFlow(flow) {
+  const res = await fetch("/api/flows", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(flow),
+    credentials: "include",
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  if (!data || !data.ok) return null;
+  return data.data || null;
+}
+
+async function deleteFlow(id) {
+  const res = await fetch(`/api/flows?id=${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  if (!res.ok) return false;
+  const data = await res.json();
+  return !!data?.ok;
+}
+
+async function migrateLegacy(serverFlows) {
+  if (serverFlows.length) return serverFlows;
+  const localFlows = loadLocalFlows();
+  const legacyFlow = loadLegacyFlow();
+  const all = [...localFlows];
+  if (legacyFlow) all.push(legacyFlow);
+  if (!all.length) return serverFlows;
+
+  for (const flow of all) {
+    await saveFlow(flow);
+  }
+
+  localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(LEGACY_KEY);
+  return fetchFlows();
 }
 
 function seedFlow(name) {
@@ -157,16 +196,17 @@ function renderList(flows) {
     const switchInput = document.createElement("input");
     switchInput.type = "checkbox";
     switchInput.checked = flow.enabled !== false;
-    switchInput.addEventListener("change", () => {
-      flow.enabled = switchInput.checked;
-      saveFlows(flows);
-      renderList(flows);
-    });
     const switchSlider = document.createElement("span");
     switchSlider.className = "flow-switch-slider";
     const switchLabel = document.createElement("span");
     switchLabel.className = "flow-switch-label";
     switchLabel.textContent = switchInput.checked ? "Ligado" : "Desligado";
+    switchInput.addEventListener("change", async () => {
+      flow.enabled = switchInput.checked;
+      switchLabel.textContent = switchInput.checked ? "Ligado" : "Desligado";
+      flow.updatedAt = Date.now();
+      await saveFlow(flow);
+    });
     switchWrap.appendChild(switchInput);
     switchWrap.appendChild(switchSlider);
     switchWrap.appendChild(switchLabel);
@@ -174,10 +214,10 @@ function renderList(flows) {
     deleteBtn.type = "button";
     deleteBtn.className = "ghost";
     deleteBtn.textContent = "Excluir";
-    deleteBtn.addEventListener("click", () => {
-      const next = flows.filter((item) => item.id !== flow.id);
-      saveFlows(next);
-      renderList(next);
+    deleteBtn.addEventListener("click", async () => {
+      await deleteFlow(flow.id);
+      const updated = await fetchFlows();
+      renderList(updated);
     });
     actions.appendChild(openBtn);
     actions.appendChild(switchWrap);
@@ -205,19 +245,17 @@ if (logoutButton) {
 }
 
 if (createButton) {
-  createButton.addEventListener("click", () => {
-    const flows = loadFlows();
+  createButton.addEventListener("click", async () => {
     const flow = seedFlow();
-    flows.unshift(flow);
-    saveFlows(flows);
-    openFlow(flow.id);
+    const saved = await saveFlow(flow);
+    openFlow(saved?.id || flow.id);
   });
 }
 
-ensureSession().then((ok) => {
+ensureSession().then(async (ok) => {
   if (ok) {
-    let flows = loadFlows();
-    flows = migrateLegacyFlow(flows);
+    let flows = await fetchFlows();
+    flows = await migrateLegacy(flows);
     renderList(flows);
   }
 });

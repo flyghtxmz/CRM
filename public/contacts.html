@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Botzap CRM - Contatos</title>
+    <meta name="description" content="Botzap CRM - Contatos" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <div class="brand">Botzap CRM</div>
+        <div class="subtitle">Contatos <span class="version">v0.19</span></div>
+      </div>
+      <div class="topbar-actions">
+        <a class="ghost link" href="/app.html">Conversas</a>
+        <a class="ghost link" href="/tools.html">Ferramentas</a>
+        <a class="ghost link" href="/flows.html">Fluxos</a>
+        <button id="logout" class="ghost" type="button">Sair</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="card contacts-card">
+        <div class="contacts-header">
+          <h1>Contatos</h1>
+          <div class="contacts-actions">
+            <input id="contact-search" type="search" placeholder="Buscar contato" />
+            <button id="contact-refresh" type="button">Atualizar</button>
+          </div>
+        </div>
+        <div id="contact-list" class="contacts-list"></div>
+        <p id="contact-empty" class="hint"></p>
+      </section>
+    </main>
+
+    <script src="/contacts.js"></script>
+  </body>
+</html>

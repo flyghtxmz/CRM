@@ -26,8 +26,49 @@ type StoredMessage = {
   status?: string;
 };
 
+type Contact = {
+  wa_id: string;
+  name?: string;
+  tags?: string[];
+  last_message?: string;
+  last_timestamp?: string | number;
+  last_type?: string;
+  last_direction?: "in" | "out";
+  last_status?: string;
+};
+
 function nowUnix() {
   return Math.floor(Date.now() / 1000);
+}
+
+function uniqueTags(tags: string[]) {
+  const seen = new Set<string>();
+  const output: string[] = [];
+  tags.forEach((tag) => {
+    const normalized = String(tag || "").trim();
+    if (!normalized) return;
+    if (seen.has(normalized)) return;
+    seen.add(normalized);
+    output.push(normalized);
+  });
+  return output;
+}
+
+function upsertContactList(list: Contact[], update: Contact) {
+  const existing = list.find((item) => item.wa_id === update.wa_id);
+  const merged: Contact = {
+    ...(existing || { wa_id: update.wa_id, tags: [] }),
+    ...update,
+  };
+  merged.tags = uniqueTags([...(existing?.tags || []), ...(update.tags || [])]);
+
+  const next = list.filter((item) => item.wa_id !== update.wa_id);
+  next.unshift(merged);
+  next.sort((a, b) => Number(b.last_timestamp || 0) - Number(a.last_timestamp || 0));
+  if (next.length > 200) next.splice(200);
+  list.splice(0, list.length, ...next);
+
+  return merged;
 }
 
 export const onRequestOptions = async () => options();
@@ -81,6 +122,22 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       filtered.sort((a, b) => Number(b.last_timestamp || 0) - Number(a.last_timestamp || 0));
       if (filtered.length > 50) filtered.splice(50);
       await kv.put("conversations:index", JSON.stringify(filtered));
+
+      const contactIndex = (await kv.get("contacts:index", "json")) as Contact[] | null;
+      const contactList: Contact[] = Array.isArray(contactIndex) ? contactIndex : [];
+      const storedContact = (await kv.get(`contact:${to}`, "json")) as Contact | null;
+      const contactRecord = upsertContactList(contactList, {
+        wa_id: to,
+        name: storedContact?.name || existing?.name,
+        tags: storedContact?.tags || [],
+        last_message: message,
+        last_timestamp: nowUnix(),
+        last_type: "text",
+        last_direction: "out",
+        last_status: "sent",
+      });
+      await kv.put("contacts:index", JSON.stringify(contactList));
+      await kv.put(`contact:${to}`, JSON.stringify(contactRecord));
 
       const threadKey = `thread:${to}`;
       const thread = (await kv.get(threadKey, "json")) as StoredMessage[] | null;

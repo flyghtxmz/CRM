@@ -12,7 +12,6 @@ const zoomResetButton = document.getElementById("zoom-reset");
 const zoomValue = document.getElementById("zoom-value");
 const blockPicker = document.getElementById("block-picker");
 
-const FLOW_STORAGE_KEY = "botzap_flows_v1";
 const AUTO_SAVE_MS = 5000;
 const ZOOM_MIN = 0.6;
 const ZOOM_MAX = 1.6;
@@ -77,20 +76,27 @@ async function ensureSession() {
   }
 }
 
-function loadFlows() {
-  const raw = localStorage.getItem(FLOW_STORAGE_KEY);
-  if (!raw) return [];
-  try {
-    const data = JSON.parse(raw);
-    if (Array.isArray(data)) return data;
-  } catch {
-    // ignore
-  }
-  return [];
+async function fetchFlow(flowId) {
+  const res = await fetch(`/api/flows?id=${encodeURIComponent(flowId)}`, {
+    credentials: "include",
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  if (!data || !data.ok) return null;
+  return data.data || null;
 }
 
-function saveFlows(flows) {
-  localStorage.setItem(FLOW_STORAGE_KEY, JSON.stringify(flows));
+async function saveFlowToApi(payload) {
+  const res = await fetch("/api/flows", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+    credentials: "include",
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  if (!data || !data.ok) return null;
+  return data.data || null;
 }
 
 function defaultData() {
@@ -123,15 +129,14 @@ function defaultData() {
   };
 }
 
-function loadFlow() {
+async function loadFlow() {
   const flowId = new URLSearchParams(window.location.search).get("id");
   if (!flowId) {
     window.location.href = "/flows.html";
     return false;
   }
 
-  const flows = loadFlows();
-  const flow = flows.find((item) => item.id === flowId);
+  const flow = await fetchFlow(flowId);
   if (!flow) {
     window.location.href = "/flows.html";
     return false;
@@ -151,16 +156,10 @@ function loadFlow() {
     if (node.type === "start" && typeof node.trigger !== "string") {
       node.trigger = "";
     }
-    if (node.type === "condition" && typeof node.rule !== "string") {
-      node.rule = "";
-    }
     if (node.type === "condition") {
-      node.matchType = node.matchType === "any" ? "any" : "all";
       const rawRules = Array.isArray(node.rules) ? node.rules : [];
-      if (!rawRules.length && node.rule) {
-        rawRules.push(node.rule);
-      }
-      node.rules = rawRules.map(normalizeRule).filter(Boolean);
+      const normalized = rawRules.map(normalizeRule).filter(Boolean);
+      node.rules = normalized.length ? [normalized[0]] : [];
     }
     if (node.type === "action") {
       if (node.action && typeof node.action === "object") return;
@@ -187,15 +186,13 @@ function loadFlow() {
   return true;
 }
 
-function saveFlow() {
+async function saveFlow() {
   if (!state.flowId) return;
-  const flows = loadFlows();
-  const idx = flows.findIndex((item) => item.id === state.flowId);
-  const existing = idx >= 0 ? flows[idx] : null;
+  const current = await fetchFlow(state.flowId);
   const payload = {
     id: state.flowId,
     name: state.flowName || "Fluxo sem nome",
-    enabled: existing?.enabled ?? true,
+    enabled: current?.enabled ?? true,
     updatedAt: Date.now(),
     data: {
       nodes: state.nodes,
@@ -204,17 +201,17 @@ function saveFlow() {
       zoom: state.zoom,
     },
   };
-  if (idx >= 0) {
-    flows[idx] = payload;
-  } else {
-    flows.unshift(payload);
+  const saved = await saveFlowToApi(payload);
+  if (saved?.id) {
+    state.flowId = saved.id;
   }
-  saveFlows(flows);
 }
 
 function scheduleAutoSave() {
   if (autoSaveTimer) clearTimeout(autoSaveTimer);
-  autoSaveTimer = setTimeout(saveFlow, AUTO_SAVE_MS);
+  autoSaveTimer = setTimeout(() => {
+    saveFlow();
+  }, AUTO_SAVE_MS);
 }
 
 function normalizeRule(rule) {
@@ -381,35 +378,29 @@ function renderConditionNode(node) {
     placeholder.addEventListener("click", openPopup);
     list.appendChild(placeholder);
   } else {
-    rules.forEach((rule, index) => {
-      const item = document.createElement("div");
-      item.className = "flow-condition-item";
-      const text = document.createElement("span");
-      text.textContent = formatRule(rule);
-      const remove = document.createElement("button");
-      remove.type = "button";
-      remove.className = "ghost";
-      remove.textContent = "x";
-      remove.addEventListener("click", () => {
-        rules.splice(index, 1);
-        node.rules = rules;
-        renderAll();
-        scheduleAutoSave();
-      });
-      item.appendChild(text);
-      item.appendChild(remove);
-      list.appendChild(item);
+    const rule = rules[0];
+    const item = document.createElement("div");
+    item.className = "flow-condition-item";
+    const text = document.createElement("button");
+    text.type = "button";
+    text.className = "flow-condition-edit";
+    text.textContent = formatRule(rule);
+    text.addEventListener("click", openPopup);
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "ghost";
+    remove.textContent = "x";
+    remove.addEventListener("click", () => {
+      node.rules = [];
+      renderAll();
+      scheduleAutoSave();
     });
+    item.appendChild(text);
+    item.appendChild(remove);
+    list.appendChild(item);
   }
 
-  const addRuleButton = document.createElement("button");
-  addRuleButton.type = "button";
-  addRuleButton.className = "flow-add-rule";
-  addRuleButton.textContent = "Adicionar condicao";
-  addRuleButton.addEventListener("click", openPopup);
-
   body.appendChild(list);
-  body.appendChild(addRuleButton);
 
   const popup = document.createElement("div");
   popup.className = "condition-popup";
@@ -492,8 +483,7 @@ function renderConditionNode(node) {
       item.className = "condition-tag-item";
       item.innerHTML = `<span>${tag}</span><span class="count">0</span>`;
       item.addEventListener("click", () => {
-        node.rules = Array.isArray(node.rules) ? node.rules : [];
-        node.rules.push({ type: "tag", op: selectedOp, tag });
+        node.rules = [{ type: "tag", op: selectedOp, tag }];
         popup.classList.remove("open");
         renderAll();
         scheduleAutoSave();
@@ -932,7 +922,11 @@ function renderEdges() {
       `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`,
     );
     const edgeClass =
-      branch === "no" ? "flow-edge edge-no" : branch === "yes" ? "flow-edge edge-yes" : "flow-edge";
+      branch === "no"
+        ? "flow-edge edge-no energy"
+        : branch === "yes"
+          ? "flow-edge edge-yes energy"
+          : "flow-edge energy";
     path.setAttribute("class", edgeClass);
     path.dataset.edgeId = edge.id;
     path.addEventListener("click", () => {
@@ -965,11 +959,10 @@ function addBlockAt(type, x, y) {
     node.trigger = "";
   }
   if (type === "condition") {
-    node.matchType = "all";
     node.rules = [];
   }
   if (type === "action") {
-    node.action = "";
+    node.action = null;
     node.tags = [];
   }
   state.nodes.push(node);
@@ -1143,8 +1136,8 @@ document.addEventListener("click", (event) => {
   });
 });
 
-ensureSession().then((ok) => {
-  if (ok && loadFlow()) {
+ensureSession().then(async (ok) => {
+  if (ok && (await loadFlow())) {
     buildBlockPicker();
     renderAll();
   }
