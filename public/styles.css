@@ -137,6 +137,30 @@ button:hover {
   min-height: 20px;
 }
 
+.conversation-list {
+  margin-top: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.conversation-item {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fff;
+  display: grid;
+  gap: 6px;
+}
+
+.conversation-title {
+  font-weight: 700;
+}
+
+.conversation-meta {
+  color: var(--muted);
+  font-size: 13px;
+}
+
 footer {
   display: flex;
   gap: 10px;

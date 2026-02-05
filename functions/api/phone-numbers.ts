@@ -1,8 +1,13 @@
-﻿import { apiVersion, Env, json, options, requireEnv } from "./_utils";
+﻿import { apiVersion, Env, getSession, json, options, requireEnv } from "./_utils";
 
 export const onRequestOptions = async () => options();
 
-export const onRequestPost: PagesFunction<Env> = async ({ env }) => {
+export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
+  const session = await getSession(request, env);
+  if ("error" in session) {
+    return json({ ok: false, error: session.error }, session.status);
+  }
+
   try {
     const token = requireEnv(env, "WHATSAPP_TOKEN");
     const wabaId = requireEnv(env, "WHATSAPP_WABA_ID");

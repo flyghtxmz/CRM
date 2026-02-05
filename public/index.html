@@ -21,7 +21,7 @@
         <form id="login-form">
           <label>
             Email
-            <input type="email" name="email" placeholder="test@test.com" required />
+            <input type="email" name="email" placeholder="Seu email" required />
           </label>
           <label>
             Senha
@@ -86,6 +86,14 @@
         <p class="hint">Liste os numeros vinculados a sua WABA e copie o ID.</p>
         <button type="button" id="phone-numbers">Buscar numeros</button>
         <pre id="phone-result" class="result" aria-live="polite"></pre>
+      </section>
+
+      <section class="card">
+        <h1>Conversas recentes</h1>
+        <p class="hint">Lista as ultimas pessoas que enviaram mensagem para voce.</p>
+        <button type="button" id="refresh-conversations">Atualizar conversas</button>
+        <div id="conversation-list" class="conversation-list"></div>
+        <p id="conversation-empty" class="hint"></p>
       </section>
 
       <section class="card">

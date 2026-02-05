@@ -11,36 +11,17 @@ const appShell = document.getElementById("app-shell");
 const loginForm = document.getElementById("login-form");
 const loginError = document.getElementById("login-error");
 const logoutButton = document.getElementById("logout");
+const convButton = document.getElementById("refresh-conversations");
+const convList = document.getElementById("conversation-list");
+const convEmpty = document.getElementById("conversation-empty");
 
 const pretty = (data) => JSON.stringify(data, null, 2);
-const AUTH_KEY = "botzap_auth";
-const AUTH_TTL_MS = 1000 * 60 * 60 * 24 * 7;
-
-function readAuth() {
-  try {
-    const raw = localStorage.getItem(AUTH_KEY);
-    if (!raw) return null;
-    const data = JSON.parse(raw);
-    if (!data || typeof data.ts !== "number") return null;
-    if (Date.now() - data.ts > AUTH_TTL_MS) return null;
-    return data;
-  } catch {
-    return null;
-  }
-}
-
-function writeAuth(email) {
-  localStorage.setItem(AUTH_KEY, JSON.stringify({ email, ts: Date.now() }));
-}
-
-function clearAuth() {
-  localStorage.removeItem(AUTH_KEY);
-}
 
 function showApp() {
   if (loginScreen) loginScreen.hidden = true;
   if (appShell) appShell.hidden = false;
   if (logoutButton) logoutButton.hidden = false;
+  refreshConversations();
 }
 
 function showLogin() {
@@ -49,12 +30,86 @@ function showLogin() {
   if (logoutButton) logoutButton.hidden = true;
 }
 
-function initAuth() {
-  const auth = readAuth();
-  if (auth) {
-    showApp();
-  } else {
+async function checkSession() {
+  try {
+    const res = await fetch("/api/session", { credentials: "include" });
+    if (!res.ok) {
+      showLogin();
+      return;
+    }
+    const data = await res.json();
+    if (data && data.ok) {
+      showApp();
+    } else {
+      showLogin();
+    }
+  } catch {
     showLogin();
+  }
+}
+
+function formatTime(value) {
+  if (!value) return "";
+  const ts = Number(value);
+  const ms = ts > 1e12 ? ts : ts * 1000;
+  const date = new Date(ms);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString("pt-BR");
+}
+
+function renderConversations(items) {
+  if (!convList || !convEmpty) return;
+  convList.innerHTML = "";
+
+  if (!items || items.length === 0) {
+    convEmpty.textContent = "Nenhuma conversa registrada ainda.";
+    return;
+  }
+
+  convEmpty.textContent = "";
+  items.forEach((item) => {
+    const div = document.createElement("div");
+    div.className = "conversation-item";
+
+    const title = document.createElement("div");
+    title.className = "conversation-title";
+    title.textContent = item.name || item.wa_id || "Desconhecido";
+
+    const msg = document.createElement("div");
+    msg.textContent = item.last_message || "(sem mensagem)";
+
+    const meta = document.createElement("div");
+    meta.className = "conversation-meta";
+    const time = formatTime(item.last_timestamp);
+    meta.textContent = `${item.wa_id || ""} ${time ? "• " + time : ""}`.trim();
+
+    div.appendChild(title);
+    div.appendChild(msg);
+    div.appendChild(meta);
+    convList.appendChild(div);
+  });
+}
+
+async function refreshConversations() {
+  if (!convList) return;
+  try {
+    const res = await fetch("/api/conversations", { credentials: "include" });
+    const text = await res.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = { raw: text };
+    }
+    if (!res.ok) {
+      renderConversations([]);
+      if (convEmpty) convEmpty.textContent = "Erro ao carregar conversas.";
+      return;
+    }
+    renderConversations(data.data || []);
+  } catch {
+    renderConversations([]);
+    if (convEmpty) convEmpty.textContent = "Erro ao carregar conversas.";
   }
 }
 
@@ -63,6 +118,7 @@ async function postJson(url, payload) {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(payload),
+    credentials: "include",
   });
   const text = await res.text();
   let data;
@@ -78,27 +134,35 @@ async function postJson(url, payload) {
 }
 
 if (loginForm && loginError) {
-  loginForm.addEventListener("submit", (event) => {
+  loginForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     loginError.textContent = "";
     const form = new FormData(loginForm);
     const email = String(form.get("email") || "").trim();
     const password = String(form.get("password") || "").trim();
 
-    if (email === "test@test.com" && password === "1234") {
-      writeAuth(email);
+    try {
+      await postJson("/api/login", { email, password });
       showApp();
-      return;
+    } catch {
+      loginError.textContent = "Email ou senha invalidos.";
     }
-
-    loginError.textContent = "Email ou senha invalidos.";
   });
 }
 
 if (logoutButton) {
-  logoutButton.addEventListener("click", () => {
-    clearAuth();
-    showLogin();
+  logoutButton.addEventListener("click", async () => {
+    try {
+      await postJson("/api/logout", {});
+    } finally {
+      showLogin();
+    }
+  });
+}
+
+if (convButton) {
+  convButton.addEventListener("click", () => {
+    refreshConversations();
   });
 }
 
@@ -160,4 +224,4 @@ if (phoneButton && phoneResult) {
   });
 }
 
-initAuth();
+checkSession();

@@ -1,4 +1,4 @@
-﻿import { apiVersion, callGraph, Env, json, options, readJson, requireEnv } from "./_utils";
+﻿import { apiVersion, callGraph, Env, getSession, json, options, readJson, requireEnv } from "./_utils";
 
 type SendBody = {
   to?: string;
@@ -8,6 +8,11 @@ type SendBody = {
 export const onRequestOptions = async () => options();
 
 export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
+  const session = await getSession(request, env);
+  if ("error" in session) {
+    return json({ ok: false, error: session.error }, session.status);
+  }
+
   try {
     const payload = await readJson<SendBody>(request);
     const to = (payload.to || "").trim();

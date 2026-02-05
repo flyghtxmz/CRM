@@ -1,8 +1,13 @@
-﻿import { Env, json, options } from "./_utils";
+﻿import { Env, getSession, json, options } from "./_utils";
 
 export const onRequestOptions = async () => options();
 
-export const onRequestPost: PagesFunction<Env> = async ({ env }) => {
+export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
+  const session = await getSession(request, env);
+  if ("error" in session) {
+    return json({ ok: false, error: session.error }, session.status);
+  }
+
   return json({
     ok: true,
     hasToken: Boolean(env.WHATSAPP_TOKEN),

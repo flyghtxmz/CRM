@@ -4,6 +4,10 @@
   WHATSAPP_WABA_ID?: string;
   WHATSAPP_API_VERSION?: string;
   WHATSAPP_VERIFY_TOKEN?: string;
+  BOTZAP_KV?: KVNamespace;
+  BOTZAP_ADMIN_EMAIL?: string;
+  BOTZAP_ADMIN_PASSWORD?: string;
+  BOTZAP_SESSION_TTL?: string;
 };
 
 export const corsHeaders = {
@@ -12,12 +16,13 @@ export const corsHeaders = {
   "access-control-allow-headers": "content-type",
 };
 
-export function json(data: unknown, status = 200) {
+export function json(data: unknown, status = 200, extraHeaders: Record<string, string> = {}) {
   return new Response(JSON.stringify(data, null, 2), {
     status,
     headers: {
       "content-type": "application/json; charset=utf-8",
       ...corsHeaders,
+      ...extraHeaders,
     },
   });
 }
@@ -75,4 +80,59 @@ export async function callGraph(
   }
 
   return data;
+}
+
+export function getCookie(request: Request, name: string) {
+  const header = request.headers.get("cookie") || "";
+  const parts = header.split(";").map((part) => part.trim());
+  for (const part of parts) {
+    if (part.startsWith(`${name}=`)) {
+      return part.slice(name.length + 1);
+    }
+  }
+  return null;
+}
+
+export function sessionCookie(token: string, maxAgeSeconds: number) {
+  return `botzap_session=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAgeSeconds}`;
+}
+
+export function clearSessionCookie() {
+  return "botzap_session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0";
+}
+
+export function sessionTtlSeconds(env: Env) {
+  const raw = env.BOTZAP_SESSION_TTL;
+  const value = raw ? Number.parseInt(raw, 10) : 60 * 60 * 24 * 7;
+  if (!Number.isFinite(value) || value <= 0) return 60 * 60 * 24 * 7;
+  return value;
+}
+
+export function newSessionToken() {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  let binary = "";
+  for (const b of bytes) {
+    binary += String.fromCharCode(b);
+  }
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+export async function getSession(request: Request, env: Env) {
+  const kv = env.BOTZAP_KV;
+  if (!kv) {
+    return { error: "Missing KV binding", status: 500 } as const;
+  }
+
+  const token = getCookie(request, "botzap_session");
+  if (!token) {
+    return { error: "Unauthorized", status: 401 } as const;
+  }
+
+  const data = await kv.get(`session:${token}`, "json");
+  if (!data) {
+    return { error: "Unauthorized", status: 401 } as const;
+  }
+
+  return { kv, token, data } as const;
 }
