@@ -673,6 +673,11 @@ body.canva-page main.layout {
   background: #edf3ef;
   overflow: auto;
   scroll-behavior: smooth;
+  cursor: grab;
+}
+
+.flow-canvas.panning {
+  cursor: grabbing;
 }
 
 .block-picker {

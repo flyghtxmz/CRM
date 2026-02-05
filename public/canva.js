@@ -11,6 +11,7 @@ const zoomOutButton = document.getElementById("zoom-out");
 const zoomResetButton = document.getElementById("zoom-reset");
 const zoomValue = document.getElementById("zoom-value");
 const blockPicker = document.getElementById("block-picker");
+const PAN_IGNORE_SELECTOR = ".flow-node, .flow-zoom, .block-picker";
 
 const AUTO_SAVE_MS = 5000;
 const ZOOM_MIN = 0.6;
@@ -1010,6 +1011,44 @@ function closeBlockPicker() {
   blockPicker.setAttribute("aria-hidden", "true");
 }
 
+function enablePan() {
+  if (!flowCanvas) return;
+  let isPanning = false;
+  let startX = 0;
+  let startY = 0;
+  let originLeft = 0;
+  let originTop = 0;
+
+  const onMove = (event) => {
+    if (!isPanning) return;
+    const dx = event.clientX - startX;
+    const dy = event.clientY - startY;
+    flowCanvas.scrollLeft = originLeft - dx;
+    flowCanvas.scrollTop = originTop - dy;
+  };
+
+  const onUp = () => {
+    if (!isPanning) return;
+    isPanning = false;
+    flowCanvas.classList.remove("panning");
+    document.removeEventListener("mousemove", onMove);
+    document.removeEventListener("mouseup", onUp);
+  };
+
+  flowCanvas.addEventListener("mousedown", (event) => {
+    if (event.button !== 0) return;
+    if (event.target.closest(PAN_IGNORE_SELECTOR)) return;
+    isPanning = true;
+    startX = event.clientX;
+    startY = event.clientY;
+    originLeft = flowCanvas.scrollLeft;
+    originTop = flowCanvas.scrollTop;
+    flowCanvas.classList.add("panning");
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  });
+}
+
 function exportJson() {
 const payload = {
     id: state.flowId,
@@ -1143,5 +1182,6 @@ ensureSession().then(async (ok) => {
   if (ok && (await loadFlow())) {
     buildBlockPicker();
     renderAll();
+    enablePan();
   }
 });
