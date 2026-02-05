@@ -149,7 +149,11 @@ async function sendTextMessage(env: Env, to: string, text: string, preview = fal
     type: "text",
     text: { body: text, preview_url: preview },
   };
-  await callGraph(`${phoneNumberId}/messages`, token, body, version);
+  return callGraph(`${phoneNumberId}/messages`, token, body, version);
+}
+
+function nowUnix() {
+  return Math.floor(Date.now() / 1000);
 }
 
 async function runFlow(
@@ -199,8 +203,47 @@ async function runFlow(
         const text = url ? `${body}\n${url}`.trim() : body;
         if (text) {
           try {
-            await sendTextMessage(env, contact.wa_id, text, node.type === "message_link");
+            const data: any = await sendTextMessage(
+              env,
+              contact.wa_id,
+              text,
+              node.type === "message_link",
+            );
             logNotes.push(`msg:${node.id}:ok`);
+
+            const kv = env.BOTZAP_KV;
+            if (kv) {
+              const ts = await nowUnix();
+              const convIndex = (await kv.get("conversations:index", "json")) as Conversation[] | null;
+              const list: Conversation[] = Array.isArray(convIndex) ? convIndex : [];
+              const conversation: Conversation = {
+                wa_id: contact.wa_id,
+                name: contact.name,
+                last_message: text,
+                last_timestamp: ts,
+                last_type: "text",
+                last_direction: "out",
+                last_status: "sent",
+              };
+              await upsertConversation(kv, list, conversation);
+
+              const threadKey = `thread:${contact.wa_id}`;
+              const thread = (await kv.get(threadKey, "json")) as StoredMessage[] | null;
+              const threadList: StoredMessage[] = Array.isArray(thread) ? thread : [];
+              threadList.push({
+                id: data?.messages?.[0]?.id,
+                from: "me",
+                timestamp: String(ts),
+                type: "text",
+                text,
+                direction: "out",
+                status: "sent",
+              });
+              if (threadList.length > 50) {
+                threadList.splice(0, threadList.length - 50);
+              }
+              await kv.put(threadKey, JSON.stringify(threadList));
+            }
           } catch {
             // ignore send errors (24h window, etc.)
             logNotes.push(`msg:${node.id}:falhou`);
