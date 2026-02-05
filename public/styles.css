@@ -1506,6 +1506,39 @@ body.canva-page main.layout {
   margin-top: 16px;
 }
 
+.status-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  margin-top: 12px;
+}
+
+.status-item {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: #fdfefe;
+  display: grid;
+  gap: 6px;
+}
+
+.status-label {
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.status-value {
+  font-weight: 700;
+}
+
+.status-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .log-row {
   padding: 12px 14px;
   border-radius: 14px;

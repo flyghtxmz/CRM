@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Botzap CRM - Status</title>
+    <meta name="description" content="Botzap CRM - Status" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <div class="brand">Botzap CRM</div>
+        <div class="subtitle">Status <span class="version">v0.31</span></div>
+      </div>
+      <div class="topbar-actions">
+        <a class="ghost link" href="/app.html">Conversas</a>
+        <a class="ghost link" href="/contacts.html">Contatos</a>
+        <a class="ghost link" href="/flows.html">Fluxos</a>
+        <a class="ghost link" href="/logs.html">Logs</a>
+        <a class="ghost link" href="/tools.html">Ferramentas</a>
+        <button id="logout" class="ghost" type="button">Sair</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="card status-card">
+        <div class="status-header">
+          <div>
+            <h1>Status da API</h1>
+            <p class="hint">Informacoes do WhatsApp Cloud API e do app.</p>
+          </div>
+          <div class="status-actions">
+            <button id="status-refresh" type="button">Atualizar</button>
+          </div>
+        </div>
+        <div id="status-grid" class="status-grid"></div>
+        <pre id="status-raw" class="result" aria-live="polite"></pre>
+      </section>
+
+      <section class="card status-card">
+        <div class="status-header">
+          <div>
+            <h1>Health</h1>
+            <p class="hint">Diagnostico rapido do ambiente e modo do app.</p>
+          </div>
+        </div>
+        <div id="health-grid" class="status-grid"></div>
+      </section>
+    </main>
+
+    <script src="/status.js"></script>
+  </body>
+</html>
