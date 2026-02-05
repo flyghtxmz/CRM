@@ -24,6 +24,8 @@ const pretty = (data) => JSON.stringify(data, null, 2);
 let currentConversationId = null;
 let currentConversationName = null;
 let allConversations = [];
+const autoRefreshIntervalMs = 15000;
+let autoRefreshTimer = null;
 
 async function ensureSession() {
   try {
@@ -275,12 +277,26 @@ async function refreshConversations() {
       if (convEmpty) convEmpty.textContent = "Erro ao carregar conversas.";
       return;
     }
-    allConversations = data.data || [];
+    allConversations = Array.isArray(data.data) ? data.data.slice() : [];
+    allConversations.sort((a, b) => Number(b.last_timestamp || 0) - Number(a.last_timestamp || 0));
     renderConversations(applySearch(allConversations));
   } catch {
     renderConversations([]);
     if (convEmpty) convEmpty.textContent = "Erro ao carregar conversas.";
   }
+}
+
+function startAutoRefresh() {
+  if (!convList || !chatHistory) return;
+  if (autoRefreshTimer) {
+    clearInterval(autoRefreshTimer);
+  }
+  autoRefreshTimer = setInterval(async () => {
+    await refreshConversations();
+    if (currentConversationId) {
+      await loadThread(currentConversationId);
+    }
+  }, autoRefreshIntervalMs);
 }
 
 async function postJson(url, payload) {
@@ -428,5 +444,8 @@ if (phoneButton && phoneResult) {
 }
 
 ensureSession().then((ok) => {
-  if (ok) refreshConversations();
+  if (ok) {
+    refreshConversations();
+    startAutoRefresh();
+  }
 });

@@ -1,15 +1,15 @@
-﻿:root {
+:root {
   color-scheme: light;
-  --bg: #d1d7db;
+  --bg: #e8f2ec;
   --card: #ffffff;
   --ink: #1b1a17;
-  --muted: #5a544b;
-  --accent: #00a884;
-  --accent-dark: #008069;
-  --border: #d7d9dc;
-  --wa-bg: #efeae2;
-  --wa-sidebar: #f0f2f5;
-  --wa-border: #d1d7db;
+  --muted: #4f5d57;
+  --accent: #25d366;
+  --accent-dark: #128c7e;
+  --border: #d5dbd7;
+  --wa-bg: #e6f2ea;
+  --wa-sidebar: #f1f4f2;
+  --wa-border: #d0d7d3;
   --wa-incoming: #ffffff;
   --wa-outgoing: #d9fdd3;
   --topbar-height: 64px;
@@ -194,6 +194,7 @@ button:hover {
   border-radius: 12px;
   overflow: hidden;
   min-height: 70vh;
+  width: 100%;
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.12);
 }
 
@@ -202,13 +203,14 @@ button:hover {
   border-right: 1px solid var(--wa-border);
   display: grid;
   grid-template-rows: auto auto 1fr;
+  min-height: 0;
 }
 
 .wa-sidebar-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 16px;
+  padding: 10px 16px;
 }
 
 .wa-actions {
@@ -232,7 +234,7 @@ button:hover {
 }
 
 .wa-search {
-  padding: 8px 16px 12px;
+  padding: 6px 16px 10px;
 }
 
 .wa-search input {
@@ -241,10 +243,11 @@ button:hover {
 }
 
 .conversation-list {
-  padding: 0 8px 12px;
+  padding: 0 8px 8px;
   display: grid;
   gap: 6px;
   overflow: auto;
+  min-height: 0;
 }
 
 .conversation-item {
@@ -308,13 +311,14 @@ button:hover {
   display: grid;
   grid-template-rows: auto 1fr auto;
   position: relative;
+  min-height: 0;
 }
 
 .wa-chat::before {
   content: "";
   position: absolute;
   inset: 0;
-  background-image: url("data:image/svg+xml,%3Csvg width='120' height='120' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23d7cec5' fill-opacity='0.25'%3E%3Ccircle cx='20' cy='20' r='2'/%3E%3Ccircle cx='60' cy='40' r='2'/%3E%3Ccircle cx='90' cy='80' r='2'/%3E%3Cpath d='M10 70h10v10H10z'/%3E%3Cpath d='M70 10h12v12H70z'/%3E%3C/g%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg width='120' height='120' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23c9d9cc' fill-opacity='0.25'%3E%3Ccircle cx='20' cy='20' r='2'/%3E%3Ccircle cx='60' cy='40' r='2'/%3E%3Ccircle cx='90' cy='80' r='2'/%3E%3Cpath d='M10 70h10v10H10z'/%3E%3Cpath d='M70 10h12v12H70z'/%3E%3C/g%3E%3C/svg%3E");
   opacity: 0.5;
   pointer-events: none;
 }
@@ -348,11 +352,12 @@ button:hover {
 .chat-history {
   position: relative;
   z-index: 1;
-  padding: 12px 20px;
+  padding: 6px 16px 16px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
   overflow: auto;
+  min-height: 0;
 }
 
 .chat-bubble {
@@ -361,6 +366,7 @@ button:hover {
   background: var(--wa-incoming);
   border: none;
   max-width: 70%;
+  width: fit-content;
   position: relative;
   box-shadow: 0 1px 1px rgba(0, 0, 0, 0.08);
   font-size: 14px;
@@ -368,11 +374,13 @@ button:hover {
 }
 
 .chat-bubble.incoming {
-  justify-self: start;
+  align-self: flex-start;
+  margin-right: auto;
 }
 
 .chat-bubble.outgoing {
-  justify-self: end;
+  align-self: flex-end;
+  margin-left: auto;
   background: var(--wa-outgoing);
   border-radius: 10px 10px 2px 10px;
 }
@@ -401,6 +409,15 @@ button:hover {
 
 .status-read {
   color: #1fa7e1;
+}
+
+.conversation-preview .status {
+  margin-left: 4px;
+  font-size: 12px;
+}
+
+.chat-bubble-meta .status {
+  font-size: 12px;
 }
 
 .chat-composer {
@@ -434,12 +451,14 @@ button:hover {
 
 body.app-page {
   background: var(--wa-bg);
+  min-height: 100vh;
 }
 
 body.app-page main.layout {
   max-width: none;
   padding: 0;
   min-height: calc(100vh - var(--topbar-height));
+  height: calc(100vh - var(--topbar-height));
 }
 
 body.app-page .wa-shell {
@@ -475,3 +494,4 @@ body.app-page .footer {
     border-bottom: 1px solid var(--wa-border);
   }
 }
+
