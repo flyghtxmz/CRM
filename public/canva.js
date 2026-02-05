@@ -487,6 +487,7 @@ function renderConditionNode(node) {
         popup.classList.remove("open");
         renderAll();
         scheduleAutoSave();
+        saveFlow();
       });
       tagList.appendChild(item);
     });
@@ -648,6 +649,7 @@ function renderActionNode(node) {
     popup.classList.remove("open");
     renderAll();
     scheduleAutoSave();
+    saveFlow();
   });
 
   const renderTagList = () => {
@@ -671,6 +673,7 @@ function renderActionNode(node) {
         popup.classList.remove("open");
         renderAll();
         scheduleAutoSave();
+        saveFlow();
       });
       tagList.appendChild(item);
     });
