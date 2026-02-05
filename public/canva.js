@@ -350,23 +350,6 @@ function renderConditionNode(node) {
   const body = document.createElement("div");
   body.className = "flow-node-body flow-condition-body";
 
-  const mode = document.createElement("select");
-  mode.className = "flow-condition-select";
-  const optAll = document.createElement("option");
-  optAll.value = "all";
-  optAll.textContent = "Todas as condicoes (AND)";
-  const optAny = document.createElement("option");
-  optAny.value = "any";
-  optAny.textContent = "Qualquer condicao (OR)";
-  mode.appendChild(optAll);
-  mode.appendChild(optAny);
-  mode.value = node.matchType === "any" ? "any" : "all";
-  mode.addEventListener("change", () => {
-    node.matchType = mode.value;
-    scheduleAutoSave();
-  });
-  body.appendChild(mode);
-
   const list = document.createElement("div");
   list.className = "flow-condition-list";
 
