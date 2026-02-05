@@ -673,6 +673,10 @@ body.canva-page main.layout {
   background: #edf3ef;
   overflow: auto;
   scroll-behavior: smooth;
+  cursor: default;
+}
+
+.flow-canvas.pan-ready {
   cursor: grab;
 }
 
@@ -1013,7 +1017,13 @@ body.canva-page main.layout {
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
   z-index: 2;
   will-change: transform;
-}`n`n.flow-node-message-link .flow-node-body {`n  display: grid;`n  gap: 8px;`n}`n
+}
+
+.flow-node-message-link .flow-node-body {
+  display: grid;
+  gap: 8px;
+}
+
 
 .flow-node-header {
   display: flex;
@@ -1659,6 +1669,8 @@ body.canva-page main.layout {
     max-width: none;
   }
 }
+
+
 
 
 

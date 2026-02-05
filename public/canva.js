@@ -12,6 +12,7 @@ const zoomResetButton = document.getElementById("zoom-reset");
 const zoomValue = document.getElementById("zoom-value");
 const blockPicker = document.getElementById("block-picker");
 const PAN_IGNORE_SELECTOR = ".flow-node, .flow-zoom, .block-picker";
+let panReady = false;
 
 const AUTO_SAVE_MS = 5000;
 const ZOOM_MIN = 0.6;
@@ -1133,9 +1134,15 @@ function enablePan() {
     document.removeEventListener("mouseup", onUp);
   };
 
+  const canStartPan = (event) => {
+    if (event.target.closest(PAN_IGNORE_SELECTOR)) return false;
+    if (event.button === 1) return true;
+    if (event.button === 0 && panReady) return true;
+    return false;
+  };
+
   flowCanvas.addEventListener("mousedown", (event) => {
-    if (event.button !== 0) return;
-    if (event.target.closest(PAN_IGNORE_SELECTOR)) return;
+    if (!canStartPan(event)) return;
     isPanning = true;
     startX = event.clientX;
     startY = event.clientY;
@@ -1281,5 +1288,19 @@ ensureSession().then(async (ok) => {
     buildBlockPicker();
     renderAll();
     enablePan();
+  }
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.code === "Space") {
+    panReady = true;
+    if (flowCanvas) flowCanvas.classList.add("pan-ready");
+  }
+});
+
+document.addEventListener("keyup", (event) => {
+  if (event.code === "Space") {
+    panReady = false;
+    if (flowCanvas) flowCanvas.classList.remove("pan-ready");
   }
 });
