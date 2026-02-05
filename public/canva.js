@@ -28,6 +28,7 @@ let state = {
 };
 
 let linkFromId = null;
+let linkFromBranch = null;
 let autoSaveTimer = null;
 
 const blockPresets = {
@@ -36,8 +37,8 @@ const blockPresets = {
   question: { title: "Pergunta", body: "Pergunta para o cliente" },
   tag: { title: "Tag", body: "Aplicar tag" },
   delay: { title: "Delay", body: "Esperar" },
-  condition: { title: "Condição", body: "" },
-  action: { title: "Ações", body: "" },
+  condition: { title: "Condicao", body: "" },
+  action: { title: "Acoes", body: "" },
 };
 
 const blockOptions = [
@@ -46,8 +47,8 @@ const blockOptions = [
   { type: "question", label: "Pergunta" },
   { type: "tag", label: "Tag" },
   { type: "delay", label: "Delay" },
-  { type: "condition", label: "Condição" },
-  { type: "action", label: "Ações" },
+  { type: "condition", label: "Condicao" },
+  { type: "action", label: "Acoes" },
 ];
 
 function makeId(prefix) {
@@ -156,6 +157,10 @@ function loadFlow() {
     if (node.type === "action" && typeof node.action !== "string") {
       node.action = "";
     }
+    if (node.type === "condition") {
+      node.matchType = node.matchType === "any" ? "any" : "all";
+      node.rules = Array.isArray(node.rules) ? node.rules : [];
+    }
   });
 
   if (!state.nodes.length) {
@@ -234,7 +239,7 @@ function renderStartNode(node) {
   header.className = "flow-node-header flow-start-header";
   const icon = document.createElement("span");
   icon.className = "flow-start-icon";
-  icon.textContent = "⚡";
+  icon.textContent = "G";
   const title = document.createElement("span");
   title.className = "flow-start-title";
   title.textContent = "Quando...";
@@ -245,7 +250,7 @@ function renderStartNode(node) {
   body.className = "flow-start-body";
   const desc = document.createElement("p");
   desc.textContent =
-    "O gatilho é responsável por acionar a automação. Clique para adicionar um gatilho.";
+    "O gatilho e responsavel por acionar a automacao. Clique para adicionar um gatilho.";
   body.appendChild(desc);
 
   const triggerButton = document.createElement("button");
@@ -258,7 +263,7 @@ function renderStartNode(node) {
   menu.className = "trigger-menu";
   const option = document.createElement("button");
   option.type = "button";
-  option.textContent = "Quando usuário enviar mensagem";
+  option.textContent = "Quando usuario enviar mensagem";
   option.addEventListener("click", () => {
     node.trigger = option.textContent;
     renderAll();
@@ -273,13 +278,14 @@ function renderStartNode(node) {
 
   const footer = document.createElement("div");
   footer.className = "flow-start-footer";
-  footer.textContent = "Então";
+  footer.textContent = "Entao";
 
   const connectorOut = document.createElement("div");
   connectorOut.className = "connector out";
   connectorOut.title = "Saida";
   connectorOut.addEventListener("click", () => {
     linkFromId = node.id;
+    linkFromBranch = "default";
     clearLinking();
     el.classList.add("linking");
   });
@@ -304,55 +310,145 @@ function renderConditionNode(node) {
   header.className = "flow-node-header flow-condition-header";
   const icon = document.createElement("span");
   icon.className = "flow-node-icon";
-  icon.textContent = "⛃";
+  icon.textContent = "C";
   const title = document.createElement("span");
-  title.textContent = "Condição";
+  title.textContent = "Condicao";
   header.appendChild(icon);
   header.appendChild(title);
 
   const body = document.createElement("div");
-  body.className = "flow-node-body";
-  const placeholder = document.createElement("button");
-  placeholder.type = "button";
-  placeholder.className = "flow-placeholder";
-  placeholder.textContent = node.rule || "Clique para adicionar uma condição";
-  placeholder.addEventListener("click", () => {
-    const value = window.prompt("Defina a condição", node.rule || "");
-    if (value === null) return;
-    node.rule = value.trim();
-    renderAll();
+  body.className = "flow-node-body flow-condition-body";
+
+  const mode = document.createElement("select");
+  mode.className = "flow-condition-select";
+  const optAll = document.createElement("option");
+  optAll.value = "all";
+  optAll.textContent = "Todas as condicoes (AND)";
+  const optAny = document.createElement("option");
+  optAny.value = "any";
+  optAny.textContent = "Qualquer condicao (OR)";
+  mode.appendChild(optAll);
+  mode.appendChild(optAny);
+  mode.value = node.matchType === "any" ? "any" : "all";
+  mode.addEventListener("change", () => {
+    node.matchType = mode.value;
     scheduleAutoSave();
   });
-  body.appendChild(placeholder);
+  body.appendChild(mode);
+
+  const list = document.createElement("div");
+  list.className = "flow-condition-list";
+
+  const rules = Array.isArray(node.rules) ? node.rules : [];
+  if (!rules.length && node.rule) {
+    rules.push(node.rule);
+    node.rules = rules;
+  }
+
+  const addRulePrompt = () => {
+    const value = window.prompt("Defina a condicao");
+    if (value === null) return;
+    const rule = value.trim();
+    if (!rule) return;
+    node.rules = Array.isArray(node.rules) ? node.rules : [];
+    node.rules.push(rule);
+    renderAll();
+    scheduleAutoSave();
+  };
+
+  if (!rules.length) {
+    const placeholder = document.createElement("button");
+    placeholder.type = "button";
+    placeholder.className = "flow-placeholder";
+    placeholder.textContent = "Clique para adicionar uma condicao";
+    placeholder.addEventListener("click", addRulePrompt);
+    list.appendChild(placeholder);
+  } else {
+    rules.forEach((rule, index) => {
+      const item = document.createElement("div");
+      item.className = "flow-condition-item";
+      const text = document.createElement("span");
+      text.textContent = rule;
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "ghost";
+      remove.textContent = "x";
+      remove.addEventListener("click", () => {
+        rules.splice(index, 1);
+        node.rules = rules;
+        renderAll();
+        scheduleAutoSave();
+      });
+      item.appendChild(text);
+      item.appendChild(remove);
+      list.appendChild(item);
+    });
+  }
+
+  const addRuleButton = document.createElement("button");
+  addRuleButton.type = "button";
+  addRuleButton.className = "flow-add-rule";
+  addRuleButton.textContent = "Adicionar condicao";
+  addRuleButton.addEventListener("click", addRulePrompt);
+
+  body.appendChild(list);
+  body.appendChild(addRuleButton);
 
   const connectorIn = document.createElement("div");
   connectorIn.className = "connector in";
   connectorIn.title = "Entrada";
   connectorIn.addEventListener("click", () => {
     if (!linkFromId || linkFromId === node.id) return;
-    const exists = state.edges.some((edge) => edge.from === linkFromId && edge.to === node.id);
+    const branch = linkFromBranch || "default";
+    const exists = state.edges.some(
+      (edge) =>
+        edge.from === linkFromId &&
+        edge.to === node.id &&
+        (edge.branch || "default") === branch,
+    );
     if (!exists) {
-      state.edges.push({ id: makeId("edge"), from: linkFromId, to: node.id });
+      state.edges.push({ id: makeId("edge"), from: linkFromId, to: node.id, branch });
       renderEdges();
       scheduleAutoSave();
     }
     linkFromId = null;
-    clearLinking();
+    resetLinking();
   });
 
   const connectorOut = document.createElement("div");
-  connectorOut.className = "connector out";
-  connectorOut.title = "Saida";
+  connectorOut.className = "connector out yes";
+  connectorOut.title = "Sim";
   connectorOut.addEventListener("click", () => {
     linkFromId = node.id;
+    linkFromBranch = "yes";
     clearLinking();
     el.classList.add("linking");
   });
+
+  const connectorOutNo = document.createElement("div");
+  connectorOutNo.className = "connector out no";
+  connectorOutNo.title = "Nao";
+  connectorOutNo.addEventListener("click", () => {
+    linkFromId = node.id;
+    linkFromBranch = "no";
+    clearLinking();
+    el.classList.add("linking");
+  });
+
+  const yesLabel = document.createElement("span");
+  yesLabel.className = "flow-branch-label yes";
+  yesLabel.textContent = "Sim";
+  const noLabel = document.createElement("span");
+  noLabel.className = "flow-branch-label no";
+  noLabel.textContent = "Nao";
 
   el.appendChild(header);
   el.appendChild(body);
   el.appendChild(connectorIn);
   el.appendChild(connectorOut);
+  el.appendChild(connectorOutNo);
+  el.appendChild(yesLabel);
+  el.appendChild(noLabel);
   surface.appendChild(el);
   enableDrag(el, node);
 }
@@ -369,9 +465,9 @@ function renderActionNode(node) {
   header.className = "flow-node-header flow-action-header";
   const icon = document.createElement("span");
   icon.className = "flow-node-icon";
-  icon.textContent = "⚡";
+  icon.textContent = "A";
   const title = document.createElement("span");
-  title.textContent = "Ações";
+  title.textContent = "Acoes";
   header.appendChild(icon);
   header.appendChild(title);
 
@@ -380,9 +476,9 @@ function renderActionNode(node) {
   const placeholder = document.createElement("button");
   placeholder.type = "button";
   placeholder.className = "flow-placeholder";
-  placeholder.textContent = node.action || "Clique para adicionar uma ação";
+  placeholder.textContent = node.action || "Clique para adicionar uma acao";
   placeholder.addEventListener("click", () => {
-    const value = window.prompt("Defina a ação", node.action || "");
+    const value = window.prompt("Defina a acao", node.action || "");
     if (value === null) return;
     node.action = value.trim();
     renderAll();
@@ -390,23 +486,102 @@ function renderActionNode(node) {
   });
   body.appendChild(placeholder);
 
+  node.tags = Array.isArray(node.tags) ? node.tags : [];
+  const tagSection = document.createElement("div");
+  tagSection.className = "flow-action-tags";
+  const tagLabel = document.createElement("div");
+  tagLabel.className = "flow-action-label";
+  tagLabel.textContent = "Tags";
+  tagSection.appendChild(tagLabel);
+
+  const tagRow = document.createElement("div");
+  tagRow.className = "flow-tag-row";
+  const select = document.createElement("select");
+  const placeholderTag = document.createElement("option");
+  placeholderTag.value = "";
+  placeholderTag.textContent = "Adicionar tag";
+  select.appendChild(placeholderTag);
+  state.tags.forEach((tag) => {
+    const opt = document.createElement("option");
+    opt.value = tag;
+    opt.textContent = tag;
+    select.appendChild(opt);
+  });
+  const addBtn = document.createElement("button");
+  addBtn.type = "button";
+  addBtn.textContent = "Adicionar";
+  addBtn.addEventListener("click", () => {
+    const value = select.value;
+    if (!value) return;
+    if (!node.tags.includes(value)) {
+      node.tags.push(value);
+      renderAll();
+      scheduleAutoSave();
+    }
+    select.value = "";
+  });
+  const createBtn = document.createElement("button");
+  createBtn.type = "button";
+  createBtn.className = "ghost";
+  createBtn.textContent = "Nova tag";
+  createBtn.addEventListener("click", () => {
+    const value = window.prompt("Nome da nova tag");
+    if (!value) return;
+    const name = value.trim();
+    if (!name) return;
+    if (!state.tags.includes(name)) {
+      state.tags.push(name);
+    }
+    if (!node.tags.includes(name)) {
+      node.tags.push(name);
+    }
+    renderAll();
+    scheduleAutoSave();
+  });
+  tagRow.appendChild(select);
+  tagRow.appendChild(addBtn);
+  tagRow.appendChild(createBtn);
+  tagSection.appendChild(tagRow);
+
+  const tagChips = document.createElement("div");
+  tagChips.className = "tag-chips";
+  node.tags.forEach((tag) => {
+    const chip = document.createElement("span");
+    chip.className = "tag-chip";
+    chip.textContent = tag;
+    chip.addEventListener("click", () => {
+      node.tags = node.tags.filter((t) => t !== tag);
+      renderAll();
+      scheduleAutoSave();
+    });
+    tagChips.appendChild(chip);
+  });
+  tagSection.appendChild(tagChips);
+  body.appendChild(tagSection);
+
   const footer = document.createElement("div");
   footer.className = "flow-node-footer";
-  footer.textContent = "Próximo Passo";
+  footer.textContent = "Proximo Passo";
 
   const connectorIn = document.createElement("div");
   connectorIn.className = "connector in";
   connectorIn.title = "Entrada";
   connectorIn.addEventListener("click", () => {
     if (!linkFromId || linkFromId === node.id) return;
-    const exists = state.edges.some((edge) => edge.from === linkFromId && edge.to === node.id);
+    const branch = linkFromBranch || "default";
+    const exists = state.edges.some(
+      (edge) =>
+        edge.from === linkFromId &&
+        edge.to === node.id &&
+        (edge.branch || "default") === branch,
+    );
     if (!exists) {
-      state.edges.push({ id: makeId("edge"), from: linkFromId, to: node.id });
+      state.edges.push({ id: makeId("edge"), from: linkFromId, to: node.id, branch });
       renderEdges();
       scheduleAutoSave();
     }
     linkFromId = null;
-    clearLinking();
+    resetLinking();
   });
 
   const connectorOut = document.createElement("div");
@@ -414,6 +589,7 @@ function renderActionNode(node) {
   connectorOut.title = "Saida";
   connectorOut.addEventListener("click", () => {
     linkFromId = node.id;
+    linkFromBranch = "default";
     clearLinking();
     el.classList.add("linking");
   });
@@ -483,77 +659,12 @@ function renderNodes() {
     });
     body.appendChild(textarea);
 
-    const tagRow = document.createElement("div");
-    tagRow.className = "flow-tag-row";
-    const select = document.createElement("select");
-    const placeholder = document.createElement("option");
-    placeholder.value = "";
-    placeholder.textContent = "Adicionar tag";
-    select.appendChild(placeholder);
-    state.tags.forEach((tag) => {
-      const opt = document.createElement("option");
-      opt.value = tag;
-      opt.textContent = tag;
-      select.appendChild(opt);
-    });
-    const addBtn = document.createElement("button");
-    addBtn.type = "button";
-    addBtn.textContent = "Adicionar";
-    addBtn.addEventListener("click", () => {
-      const value = select.value;
-      if (!value) return;
-      node.tags = Array.isArray(node.tags) ? node.tags : [];
-      if (!node.tags.includes(value)) {
-        node.tags.push(value);
-        renderAll();
-        scheduleAutoSave();
-      }
-      select.value = "";
-    });
-    const createBtn = document.createElement("button");
-    createBtn.type = "button";
-    createBtn.className = "ghost";
-    createBtn.textContent = "Nova tag";
-    createBtn.addEventListener("click", () => {
-      const value = window.prompt("Nome da nova tag");
-      if (!value) return;
-      const name = value.trim();
-      if (!name) return;
-      if (!state.tags.includes(name)) {
-        state.tags.push(name);
-      }
-      node.tags = Array.isArray(node.tags) ? node.tags : [];
-      if (!node.tags.includes(name)) {
-        node.tags.push(name);
-      }
-      renderAll();
-      scheduleAutoSave();
-    });
-    tagRow.appendChild(select);
-    tagRow.appendChild(addBtn);
-    tagRow.appendChild(createBtn);
-    body.appendChild(tagRow);
-
-    const tagChips = document.createElement("div");
-    tagChips.className = "tag-chips";
-    (node.tags || []).forEach((tag) => {
-      const chip = document.createElement("span");
-      chip.className = "tag-chip";
-      chip.textContent = tag;
-      chip.addEventListener("click", () => {
-        node.tags = (node.tags || []).filter((t) => t !== tag);
-        renderAll();
-        scheduleAutoSave();
-      });
-      tagChips.appendChild(chip);
-    });
-    body.appendChild(tagChips);
-
     const connectorOut = document.createElement("div");
     connectorOut.className = "connector out";
     connectorOut.title = "Saida";
     connectorOut.addEventListener("click", () => {
       linkFromId = node.id;
+      linkFromBranch = "default";
       clearLinking();
       el.classList.add("linking");
     });
@@ -564,14 +675,20 @@ function renderNodes() {
       connectorIn.title = "Entrada";
       connectorIn.addEventListener("click", () => {
         if (!linkFromId || linkFromId === node.id) return;
-        const exists = state.edges.some((edge) => edge.from === linkFromId && edge.to === node.id);
+        const branch = linkFromBranch || "default";
+        const exists = state.edges.some(
+          (edge) =>
+            edge.from === linkFromId &&
+            edge.to === node.id &&
+            (edge.branch || "default") === branch,
+        );
         if (!exists) {
-          state.edges.push({ id: makeId("edge"), from: linkFromId, to: node.id });
+          state.edges.push({ id: makeId("edge"), from: linkFromId, to: node.id, branch });
           renderEdges();
           scheduleAutoSave();
         }
         linkFromId = null;
-        clearLinking();
+        resetLinking();
       });
       el.appendChild(connectorIn);
     }
@@ -588,6 +705,11 @@ function renderNodes() {
 function clearLinking() {
   const nodes = surface.querySelectorAll(".flow-node");
   nodes.forEach((node) => node.classList.remove("linking"));
+}
+
+function resetLinking() {
+  clearLinking();
+  linkFromBranch = null;
 }
 
 function enableDrag(element, node) {
@@ -643,7 +765,11 @@ function renderEdges() {
   const rect = surface.getBoundingClientRect();
 
   state.edges.forEach((edge) => {
-    const fromEl = surface.querySelector(`[data-node-id="${edge.from}"] .connector.out`);
+    const branch = edge.branch || "default";
+    let fromSelector = ".connector.out";
+    if (branch === "yes") fromSelector = ".connector.out.yes";
+    if (branch === "no") fromSelector = ".connector.out.no";
+    const fromEl = surface.querySelector(`[data-node-id="${edge.from}"] ${fromSelector}`);
     const toEl = surface.querySelector(`[data-node-id="${edge.to}"] .connector.in`);
     if (!fromEl || !toEl) return;
     const fromRect = fromEl.getBoundingClientRect();
@@ -658,7 +784,9 @@ function renderEdges() {
       "d",
       `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`,
     );
-    path.setAttribute("class", "flow-edge");
+    const edgeClass =
+      branch === "no" ? "flow-edge edge-no" : branch === "yes" ? "flow-edge edge-yes" : "flow-edge";
+    path.setAttribute("class", edgeClass);
     path.dataset.edgeId = edge.id;
     path.addEventListener("click", () => {
       state.edges = state.edges.filter((e) => e.id !== edge.id);
@@ -688,6 +816,14 @@ function addBlockAt(type, x, y) {
   };
   if (type === "start") {
     node.trigger = "";
+  }
+  if (type === "condition") {
+    node.matchType = "all";
+    node.rules = [];
+  }
+  if (type === "action") {
+    node.action = "";
+    node.tags = [];
   }
   state.nodes.push(node);
   renderAll();
