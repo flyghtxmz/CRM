@@ -60,6 +60,14 @@ function formatTime(value) {
   return date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 }
 
+function statusSymbol(status) {
+  if (!status) return { text: "", cls: "" };
+  if (status === "sent") return { text: "✓", cls: "status-sent" };
+  if (status === "delivered") return { text: "✓✓", cls: "status-delivered" };
+  if (status === "read") return { text: "✓✓", cls: "status-read" };
+  return { text: "", cls: "" };
+}
+
 function setChatHeader(name, waId) {
   if (!chatHeader || !chatSubtitle || !chatAvatar) return;
   if (!waId) {
@@ -100,7 +108,23 @@ function renderThread(items) {
 
     const meta = document.createElement("div");
     meta.className = "chat-bubble-meta";
-    meta.textContent = formatTime(item.timestamp);
+    const time = formatTime(item.timestamp);
+
+    if (direction === "outgoing") {
+      const status = statusSymbol(item.status);
+      if (status.text) {
+        const span = document.createElement("span");
+        span.className = `status ${status.cls}`;
+        span.textContent = status.text;
+        meta.appendChild(span);
+      }
+    }
+
+    if (time) {
+      const timeSpan = document.createElement("span");
+      timeSpan.textContent = time;
+      meta.appendChild(timeSpan);
+    }
 
     bubble.appendChild(meta);
     chatHistory.appendChild(bubble);
@@ -169,6 +193,16 @@ function buildConversationItem(item, items) {
   preview.className = "conversation-preview";
   const prefix = item.last_direction === "out" ? "Voce: " : "";
   preview.textContent = `${prefix}${item.last_message || "(sem mensagem)"}`;
+
+  if (item.last_direction === "out") {
+    const status = statusSymbol(item.last_status);
+    if (status.text) {
+      const span = document.createElement("span");
+      span.className = `status ${status.cls}`;
+      span.textContent = status.text;
+      preview.appendChild(span);
+    }
+  }
 
   body.appendChild(row);
   body.appendChild(preview);
