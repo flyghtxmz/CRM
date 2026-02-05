@@ -62,6 +62,13 @@ function formatTime(value) {
   return date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 }
 
+function within24h(value) {
+  const ts = Number(value);
+  if (!Number.isFinite(ts) || ts <= 0) return false;
+  const ms = ts > 1e12 ? ts : ts * 1000;
+  return Date.now() - ms <= 24 * 60 * 60 * 1000;
+}
+
 function statusSymbol(status) {
   if (!status) return { text: "", cls: "" };
   if (status === "sent") return { text: "?", cls: "status-sent" };
@@ -70,7 +77,7 @@ function statusSymbol(status) {
   return { text: "", cls: "" };
 }
 
-function setChatHeader(name, waId) {
+function setChatHeader(name, waId, lastTimestamp) {
   if (!chatHeader || !chatSubtitle || !chatAvatar) return;
   if (!waId) {
     chatHeader.textContent = "Selecione uma conversa";
@@ -79,7 +86,15 @@ function setChatHeader(name, waId) {
     return;
   }
   chatHeader.textContent = name || waId;
-  chatSubtitle.textContent = waId;
+  chatSubtitle.innerHTML = "";
+  const wa = document.createElement("span");
+  wa.textContent = waId;
+  const badgeHeader = document.createElement("span");
+  const open = within24h(lastTimestamp);
+  badgeHeader.className = `window-badge${open ? "" : " closed"}`;
+  badgeHeader.textContent = open ? "24h aberta" : "24h fechada";
+  chatSubtitle.appendChild(wa);
+  chatSubtitle.appendChild(badgeHeader);
   chatAvatar.textContent = initials(name || waId);
 }
 
@@ -188,8 +203,14 @@ function buildConversationItem(item, items) {
   time.className = "conversation-time";
   time.textContent = formatTime(item.last_timestamp);
 
+  const badge = document.createElement("span");
+  const open = within24h(item.last_timestamp);
+  badge.className = `window-badge${open ? "" : " closed"}`;
+  badge.textContent = open ? "24h aberta" : "24h fechada";
+
   row.appendChild(title);
   row.appendChild(time);
+  row.appendChild(badge);
 
   const preview = document.createElement("div");
   preview.className = "conversation-preview";
@@ -215,7 +236,7 @@ function buildConversationItem(item, items) {
   div.addEventListener("click", () => {
     currentConversationId = item.wa_id || null;
     currentConversationName = item.name || null;
-    setChatHeader(currentConversationName, currentConversationId);
+    setChatHeader(currentConversationName, currentConversationId, item.last_timestamp);
     setComposerEnabled(Boolean(currentConversationId));
     renderConversations(items);
     loadThread(currentConversationId);

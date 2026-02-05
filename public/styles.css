@@ -306,6 +306,23 @@ button:hover {
   font-weight: 700;
 }
 
+.window-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  background: #e3f4ef;
+  color: #0b5b4b;
+}
+
+.window-badge.closed {
+  background: #fde8e8;
+  color: #9a2a2a;
+}
+
 .conversation-preview {
   color: #596066;
   font-size: 13px;
@@ -374,6 +391,9 @@ button:hover {
 .chat-subtitle {
   color: #7a8087;
   font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .chat-history {

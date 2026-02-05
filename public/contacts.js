@@ -58,6 +58,13 @@ function formatDate(value) {
   return date.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
 }
 
+function within24h(value) {
+  const raw = Number(value);
+  if (!Number.isFinite(raw) || raw <= 0) return false;
+  const timestamp = raw < 1e12 ? raw * 1000 : raw;
+  return Date.now() - timestamp <= 24 * 60 * 60 * 1000;
+}
+
 function renderContacts(list) {
   if (!listEl || !emptyEl) return;
   listEl.innerHTML = "";
@@ -85,6 +92,11 @@ function renderContacts(list) {
     meta.textContent = contact.last_message
       ? `${contact.last_message} · ${formatDate(contact.last_timestamp)}`
       : formatDate(contact.last_timestamp);
+
+    const windowBadge = document.createElement("span");
+    const open = within24h(contact.last_timestamp);
+    windowBadge.className = `window-badge${open ? "" : " closed"}`;
+    windowBadge.textContent = open ? "24h aberta" : "24h fechada";
 
     const tagWrap = document.createElement("div");
     tagWrap.className = "contact-tags";
@@ -120,6 +132,7 @@ function renderContacts(list) {
 
     info.appendChild(title);
     info.appendChild(meta);
+    info.appendChild(windowBadge);
     info.appendChild(tagWrap);
 
     row.appendChild(avatar);
