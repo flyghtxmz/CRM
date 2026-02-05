@@ -9,9 +9,14 @@
   </head>
   <body class="canva-page">
     <header class="topbar">
-      <div>
-        <div class="brand">Botzap CRM</div>
-        <div class="subtitle">Canva de Fluxos <span class="version">v0.11</span></div>
+      <div class="flow-header-left">
+        <input id="flow-name" class="flow-name-input" type="text" placeholder="Nome do fluxo" />
+        <div class="flow-header-actions">
+          <button id="save-flow" type="button">Salvar</button>
+          <button id="export-flow" type="button" class="ghost">Exportar JSON</button>
+          <button id="reset-flow" type="button" class="ghost">Limpar Canva</button>
+        </div>
+        <span class="version">v0.12</span>
       </div>
       <div class="topbar-actions">
         <a class="ghost link" href="/app.html">Conversas</a>
@@ -23,41 +28,6 @@
 
     <main class="layout flow-layout">
       <section class="flow-shell">
-        <aside class="flow-sidebar">
-          <div class="flow-section">
-            <h1>Nome do fluxo</h1>
-            <input id="flow-name" type="text" placeholder="Ex: Fluxo boas-vindas" />
-          </div>
-          <div class="flow-section">
-            <h1>Blocos</h1>
-            <div class="flow-blocks">
-              <button type="button" class="block-btn" data-block="start">Quando</button>
-              <button type="button" class="block-btn" data-block="message">Mensagem</button>
-              <button type="button" class="block-btn" data-block="question">Pergunta</button>
-              <button type="button" class="block-btn" data-block="tag">Tag</button>
-              <button type="button" class="block-btn" data-block="delay">Delay</button>
-              <button type="button" class="block-btn" data-block="condition">Condicao</button>
-            </div>
-            <p class="hint">Clique em um bloco para adicionar no canva.</p>
-          </div>
-
-          <div class="flow-section">
-            <h1>Tags</h1>
-            <form id="tag-form" class="tag-form">
-              <input id="tag-input" type="text" placeholder="Nova tag" />
-              <button type="submit">Adicionar</button>
-            </form>
-            <div id="tag-list" class="tag-list"></div>
-          </div>
-
-          <div class="flow-section flow-actions">
-            <button id="save-flow" type="button">Salvar</button>
-            <button id="export-flow" type="button" class="ghost">Exportar JSON</button>
-            <button id="reset-flow" type="button" class="ghost">Limpar canva</button>
-            <p class="hint">Salva localmente no navegador.</p>
-          </div>
-        </aside>
-
         <section class="flow-canvas" id="flow-canvas">
           <div class="flow-zoom">
             <button type="button" id="zoom-out" class="ghost">-</button>
@@ -65,6 +35,7 @@
             <button type="button" id="zoom-in" class="ghost">+</button>
             <button type="button" id="zoom-reset" class="ghost">Reset</button>
           </div>
+          <div id="block-picker" class="block-picker" aria-hidden="true"></div>
           <div class="flow-surface" id="flow-surface">
             <svg id="flow-links" class="flow-links" aria-hidden="true"></svg>
           </div>

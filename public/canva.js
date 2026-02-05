@@ -1,18 +1,16 @@
 const logoutButton = document.getElementById("logout");
-const blockButtons = document.querySelectorAll(".block-btn");
-const tagForm = document.getElementById("tag-form");
-const tagInput = document.getElementById("tag-input");
-const tagList = document.getElementById("tag-list");
 const saveButton = document.getElementById("save-flow");
 const exportButton = document.getElementById("export-flow");
 const resetButton = document.getElementById("reset-flow");
 const surface = document.getElementById("flow-surface");
+const flowCanvas = document.getElementById("flow-canvas");
 const svg = document.getElementById("flow-links");
 const flowNameInput = document.getElementById("flow-name");
 const zoomInButton = document.getElementById("zoom-in");
 const zoomOutButton = document.getElementById("zoom-out");
 const zoomResetButton = document.getElementById("zoom-reset");
 const zoomValue = document.getElementById("zoom-value");
+const blockPicker = document.getElementById("block-picker");
 
 const FLOW_STORAGE_KEY = "botzap_flows_v1";
 const AUTO_SAVE_MS = 5000;
@@ -40,6 +38,15 @@ const blockPresets = {
   delay: { title: "Delay", body: "Esperar" },
   condition: { title: "Condicao", body: "Se / Entao" },
 };
+
+const blockOptions = [
+  { type: "start", label: "Quando" },
+  { type: "message", label: "Mensagem" },
+  { type: "question", label: "Pergunta" },
+  { type: "tag", label: "Tag" },
+  { type: "delay", label: "Delay" },
+  { type: "condition", label: "Condicao" },
+];
 
 function makeId(prefix) {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
@@ -137,6 +144,12 @@ function loadFlow() {
     tags: Array.isArray(data.tags) ? data.tags : [],
   };
 
+  state.nodes.forEach((node) => {
+    if (node.type === "start" && typeof node.trigger !== "string") {
+      node.trigger = "";
+    }
+  });
+
   if (!state.nodes.length) {
     const seeded = defaultData();
     state.nodes = seeded.nodes;
@@ -156,9 +169,11 @@ function saveFlow() {
   if (!state.flowId) return;
   const flows = loadFlows();
   const idx = flows.findIndex((item) => item.id === state.flowId);
+  const existing = idx >= 0 ? flows[idx] : null;
   const payload = {
     id: state.flowId,
     name: state.flowName || "Fluxo sem nome",
+    enabled: existing?.enabled ?? true,
     updatedAt: Date.now(),
     data: {
       nodes: state.nodes,
@@ -196,35 +211,7 @@ function applyZoom() {
 }
 
 function renderTags() {
-  if (!tagList) return;
-  tagList.innerHTML = "";
-  if (!state.tags.length) {
-    const empty = document.createElement("div");
-    empty.className = "hint";
-    empty.textContent = "Nenhuma tag criada.";
-    tagList.appendChild(empty);
-    return;
-  }
-  state.tags.forEach((tag) => {
-    const item = document.createElement("div");
-    item.className = "tag-item";
-    const span = document.createElement("span");
-    span.textContent = tag;
-    item.appendChild(span);
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.textContent = "x";
-    btn.addEventListener("click", () => {
-      state.tags = state.tags.filter((t) => t !== tag);
-      state.nodes.forEach((node) => {
-        node.tags = (node.tags || []).filter((t) => t !== tag);
-      });
-      renderAll();
-      scheduleAutoSave();
-    });
-    item.appendChild(btn);
-    tagList.appendChild(item);
-  });
+  return;
 }
 
 function renderStartNode(node) {
@@ -372,8 +359,28 @@ function renderNodes() {
       }
       select.value = "";
     });
+    const createBtn = document.createElement("button");
+    createBtn.type = "button";
+    createBtn.className = "ghost";
+    createBtn.textContent = "Nova tag";
+    createBtn.addEventListener("click", () => {
+      const value = window.prompt("Nome da nova tag");
+      if (!value) return;
+      const name = value.trim();
+      if (!name) return;
+      if (!state.tags.includes(name)) {
+        state.tags.push(name);
+      }
+      node.tags = Array.isArray(node.tags) ? node.tags : [];
+      if (!node.tags.includes(name)) {
+        node.tags.push(name);
+      }
+      renderAll();
+      scheduleAutoSave();
+    });
     tagRow.appendChild(select);
     tagRow.appendChild(addBtn);
+    tagRow.appendChild(createBtn);
     body.appendChild(tagRow);
 
     const tagChips = document.createElement("div");
@@ -516,15 +523,15 @@ function renderAll() {
   renderEdges();
 }
 
-function addBlock(type) {
+function addBlockAt(type, x, y) {
   const preset = blockPresets[type] || { title: "Bloco", body: "" };
   const node = {
     id: makeId("node"),
     type,
     title: preset.title,
     body: preset.body,
-    x: 160 + state.nodes.length * 40,
-    y: 140 + state.nodes.length * 20,
+    x: Math.max(24, x),
+    y: Math.max(24, y),
     tags: [],
   };
   if (type === "start") {
@@ -535,8 +542,45 @@ function addBlock(type) {
   scheduleAutoSave();
 }
 
+function addBlock(type) {
+  addBlockAt(type, 160 + state.nodes.length * 40, 140 + state.nodes.length * 20);
+}
+
+function buildBlockPicker() {
+  if (!blockPicker) return;
+  blockPicker.innerHTML = "";
+  blockOptions.forEach((option) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = option.label;
+    button.addEventListener("click", () => {
+      const x = Number(blockPicker.dataset.nodeX || "160");
+      const y = Number(blockPicker.dataset.nodeY || "140");
+      addBlockAt(option.type, x, y);
+      closeBlockPicker();
+    });
+    blockPicker.appendChild(button);
+  });
+}
+
+function openBlockPicker(rawX, rawY, nodeX, nodeY) {
+  if (!blockPicker) return;
+  blockPicker.dataset.nodeX = String(nodeX);
+  blockPicker.dataset.nodeY = String(nodeY);
+  blockPicker.style.left = `${rawX}px`;
+  blockPicker.style.top = `${rawY}px`;
+  blockPicker.classList.add("open");
+  blockPicker.setAttribute("aria-hidden", "false");
+}
+
+function closeBlockPicker() {
+  if (!blockPicker) return;
+  blockPicker.classList.remove("open");
+  blockPicker.setAttribute("aria-hidden", "true");
+}
+
 function exportJson() {
-  const payload = {
+const payload = {
     id: state.flowId,
     name: state.flowName,
     updatedAt: Date.now(),
@@ -574,24 +618,18 @@ if (logoutButton) {
   });
 }
 
-blockButtons.forEach((button) => {
-  button.addEventListener("click", () => {
-    const type = button.dataset.block;
-    addBlock(type);
-  });
-});
-
-if (tagForm) {
-  tagForm.addEventListener("submit", (event) => {
-    event.preventDefault();
-    const value = (tagInput?.value || "").trim();
-    if (!value) return;
-    if (!state.tags.includes(value)) {
-      state.tags.push(value);
-      renderAll();
-      scheduleAutoSave();
-    }
-    if (tagInput) tagInput.value = "";
+if (flowCanvas) {
+  flowCanvas.addEventListener("dblclick", (event) => {
+    if (event.target.closest(".flow-node")) return;
+    if (event.target.closest(".flow-zoom")) return;
+    if (event.target.closest(".block-picker")) return;
+    const rect = flowCanvas.getBoundingClientRect();
+    const rawX = event.clientX - rect.left + flowCanvas.scrollLeft;
+    const rawY = event.clientY - rect.top + flowCanvas.scrollTop;
+    const zoom = state.zoom || 1;
+    const nodeX = rawX / zoom;
+    const nodeY = rawY / zoom;
+    openBlockPicker(rawX, rawY, nodeX, nodeY);
   });
 }
 
@@ -648,9 +686,15 @@ if (zoomResetButton) {
 }
 
 window.addEventListener("resize", renderEdges);
+document.addEventListener("click", (event) => {
+  if (!blockPicker || !blockPicker.classList.contains("open")) return;
+  if (blockPicker.contains(event.target)) return;
+  closeBlockPicker();
+});
 
 ensureSession().then((ok) => {
   if (ok && loadFlow()) {
+    buildBlockPicker();
     renderAll();
   }
 });

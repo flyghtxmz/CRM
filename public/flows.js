@@ -56,6 +56,7 @@ function migrateLegacyFlow(flows) {
     const flow = {
       id: makeId("flow"),
       name: "Fluxo importado",
+      enabled: true,
       updatedAt: Date.now(),
       data: {
         nodes: Array.isArray(data.nodes) ? data.nodes : [],
@@ -78,6 +79,7 @@ function seedFlow(name) {
   return {
     id: makeId("flow"),
     name: name || "Novo fluxo",
+    enabled: true,
     updatedAt: Date.now(),
     data: {
       tags: [],
@@ -150,6 +152,24 @@ function renderList(flows) {
     openBtn.type = "button";
     openBtn.textContent = "Abrir";
     openBtn.addEventListener("click", () => openFlow(flow.id));
+    const switchWrap = document.createElement("label");
+    switchWrap.className = "flow-switch";
+    const switchInput = document.createElement("input");
+    switchInput.type = "checkbox";
+    switchInput.checked = flow.enabled !== false;
+    switchInput.addEventListener("change", () => {
+      flow.enabled = switchInput.checked;
+      saveFlows(flows);
+      renderList(flows);
+    });
+    const switchSlider = document.createElement("span");
+    switchSlider.className = "flow-switch-slider";
+    const switchLabel = document.createElement("span");
+    switchLabel.className = "flow-switch-label";
+    switchLabel.textContent = switchInput.checked ? "Ligado" : "Desligado";
+    switchWrap.appendChild(switchInput);
+    switchWrap.appendChild(switchSlider);
+    switchWrap.appendChild(switchLabel);
     const deleteBtn = document.createElement("button");
     deleteBtn.type = "button";
     deleteBtn.className = "ghost";
@@ -160,6 +180,7 @@ function renderList(flows) {
       renderList(next);
     });
     actions.appendChild(openBtn);
+    actions.appendChild(switchWrap);
     actions.appendChild(deleteBtn);
 
     card.appendChild(info);
