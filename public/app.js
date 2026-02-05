@@ -24,7 +24,7 @@ const pretty = (data) => JSON.stringify(data, null, 2);
 let currentConversationId = null;
 let currentConversationName = null;
 let allConversations = [];
-const autoRefreshIntervalMs = 4000;
+const autoRefreshIntervalMs = 10000;
 let autoRefreshTimer = null;
 
 async function ensureSession() {
@@ -279,6 +279,7 @@ function startAutoRefresh() {
     clearInterval(autoRefreshTimer);
   }
   autoRefreshTimer = setInterval(async () => {
+    if (document.visibilityState !== "visible") return;
     await refreshConversations();
     if (currentConversationId) {
       await loadThread(currentConversationId);

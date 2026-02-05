@@ -5,7 +5,7 @@ const searchInput = document.getElementById("contact-search");
 const refreshButton = document.getElementById("contact-refresh");
 
 let contacts = [];
-const autoRefreshIntervalMs = 4000;
+const autoRefreshIntervalMs = 10000;
 let autoRefreshTimer = null;
 
 async function ensureSession() {
@@ -152,7 +152,10 @@ function startAutoRefresh() {
   if (autoRefreshTimer) {
     clearInterval(autoRefreshTimer);
   }
-  autoRefreshTimer = setInterval(refreshNow, autoRefreshIntervalMs);
+  autoRefreshTimer = setInterval(() => {
+    if (document.visibilityState !== "visible") return;
+    refreshNow();
+  }, autoRefreshIntervalMs);
 }
 
 if (logoutButton) {
