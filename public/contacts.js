@@ -58,11 +58,16 @@ function formatDate(value) {
   return date.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
 }
 
-function within24h(value) {
+function windowStatus(value) {
   const raw = Number(value);
-  if (!Number.isFinite(raw) || raw <= 0) return false;
+  if (!Number.isFinite(raw) || raw <= 0) return { open: false, hoursLeft: 0 };
   const timestamp = raw < 1e12 ? raw * 1000 : raw;
-  return Date.now() - timestamp <= 24 * 60 * 60 * 1000;
+  const diff = Date.now() - timestamp;
+  const windowMs = 24 * 60 * 60 * 1000;
+  const remaining = windowMs - diff;
+  const open = remaining > 0;
+  const hoursLeft = open ? Math.max(1, Math.ceil(remaining / (60 * 60 * 1000))) : 0;
+  return { open, hoursLeft };
 }
 
 function renderContacts(list) {
@@ -94,9 +99,9 @@ function renderContacts(list) {
       : formatDate(contact.last_timestamp);
 
     const windowBadge = document.createElement("span");
-    const open = within24h(contact.last_timestamp);
+    const { open, hoursLeft } = windowStatus(contact.last_timestamp);
     windowBadge.className = `window-badge${open ? "" : " closed"}`;
-    windowBadge.textContent = open ? "24h aberta" : "24h fechada";
+    windowBadge.textContent = open ? `fecha em ${hoursLeft}h` : "24h fechada";
 
     const tagWrap = document.createElement("div");
     tagWrap.className = "contact-tags";

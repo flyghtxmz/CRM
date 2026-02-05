@@ -62,11 +62,16 @@ function formatTime(value) {
   return date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 }
 
-function within24h(value) {
+function windowStatus(value) {
   const ts = Number(value);
-  if (!Number.isFinite(ts) || ts <= 0) return false;
+  if (!Number.isFinite(ts) || ts <= 0) return { open: false, hoursLeft: 0 };
   const ms = ts > 1e12 ? ts : ts * 1000;
-  return Date.now() - ms <= 24 * 60 * 60 * 1000;
+  const diff = Date.now() - ms;
+  const windowMs = 24 * 60 * 60 * 1000;
+  const remaining = windowMs - diff;
+  const open = remaining > 0;
+  const hoursLeft = open ? Math.max(1, Math.ceil(remaining / (60 * 60 * 1000))) : 0;
+  return { open, hoursLeft };
 }
 
 function statusSymbol(status) {
@@ -90,9 +95,9 @@ function setChatHeader(name, waId, lastTimestamp) {
   const wa = document.createElement("span");
   wa.textContent = waId;
   const badgeHeader = document.createElement("span");
-  const open = within24h(lastTimestamp);
+  const { open, hoursLeft } = windowStatus(lastTimestamp);
   badgeHeader.className = `window-badge${open ? "" : " closed"}`;
-  badgeHeader.textContent = open ? "24h aberta" : "24h fechada";
+  badgeHeader.textContent = open ? `fecha em ${hoursLeft}h` : "24h fechada";
   chatSubtitle.appendChild(wa);
   chatSubtitle.appendChild(badgeHeader);
   chatAvatar.textContent = initials(name || waId);
@@ -204,9 +209,9 @@ function buildConversationItem(item, items) {
   time.textContent = formatTime(item.last_timestamp);
 
   const badge = document.createElement("span");
-  const open = within24h(item.last_timestamp);
+  const { open, hoursLeft } = windowStatus(item.last_timestamp);
   badge.className = `window-badge${open ? "" : " closed"}`;
-  badge.textContent = open ? "24h aberta" : "24h fechada";
+  badge.textContent = open ? `fecha em ${hoursLeft}h` : "24h fechada";
 
   row.appendChild(title);
   row.appendChild(time);
