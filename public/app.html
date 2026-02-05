@@ -8,100 +8,60 @@
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <header>
-      <div class="brand">Botzap CRM</div>
-      <div class="subtitle">WhatsApp Cloud API <span class="version">v0.01</span></div>
-      <button id="logout" class="ghost" type="button">Sair</button>
+    <header class="topbar">
+      <div>
+        <div class="brand">Botzap CRM</div>
+        <div class="subtitle">WhatsApp Cloud API <span class="version">v0.03</span></div>
+      </div>
+      <div class="topbar-actions">
+        <a class="ghost link" href="/tools.html">Ferramentas</a>
+        <button id="logout" class="ghost" type="button">Sair</button>
+      </div>
     </header>
 
-    <main>
-      <section class="card">
-        <h1>Enviar mensagem</h1>
-        <p class="hint">Use um numero de WhatsApp real para testar o envio.</p>
-        <form id="send-form">
-          <label>
-            Numero (E.164)
-            <input name="to" placeholder="5511999999999" required />
-          </label>
-          <label>
-            Mensagem
-            <textarea name="message" rows="4" placeholder="Ola!" required></textarea>
-          </label>
-          <button type="submit">Enviar mensagem</button>
-        </form>
-        <pre id="send-result" class="result" aria-live="polite"></pre>
-      </section>
-
-      <section class="card">
-        <h1>Criar template</h1>
-        <p class="hint">Crie um template simples para a revisao da Meta.</p>
-        <form id="template-form">
-          <label>
-            Nome do template
-            <input name="name" placeholder="boas_vindas" required />
-          </label>
-          <label>
-            Categoria
-            <select name="category" required>
-              <option value="MARKETING">MARKETING</option>
-              <option value="UTILITY">UTILITY</option>
-              <option value="AUTHENTICATION">AUTHENTICATION</option>
-            </select>
-          </label>
-          <label>
-            Idioma
-            <input name="language" value="pt_BR" required />
-          </label>
-          <label>
-            Corpo do template
-            <textarea name="body" rows="4" placeholder="Ola {{1}}, seu pedido {{2}} foi confirmado." required></textarea>
-          </label>
-          <button type="submit">Criar template</button>
-        </form>
-        <pre id="template-result" class="result" aria-live="polite"></pre>
-      </section>
-
-      <section class="card">
-        <h1>Phone Number ID</h1>
-        <p class="hint">Liste os numeros vinculados a sua WABA e copie o ID.</p>
-        <button type="button" id="phone-numbers">Buscar numeros</button>
-        <pre id="phone-result" class="result" aria-live="polite"></pre>
-      </section>
-
-      <section class="card chat-shell">
-        <div class="chat-sidebar">
-          <div class="chat-sidebar-header">
-            <div>
-              <h1>Conversas</h1>
-              <p class="hint">Ultimas pessoas que falaram com voce.</p>
+    <main class="layout">
+      <section class="wa-shell">
+        <aside class="wa-sidebar">
+          <div class="wa-sidebar-top">
+            <div class="avatar">B</div>
+            <div class="wa-actions">
+              <button type="button" id="refresh-conversations" class="icon-btn">Atualizar</button>
             </div>
-            <button type="button" id="refresh-conversations">Atualizar</button>
+          </div>
+          <div class="wa-search">
+            <input id="conversation-search" type="search" placeholder="Pesquisar ou iniciar conversa" />
           </div>
           <div id="conversation-list" class="conversation-list"></div>
           <p id="conversation-empty" class="hint"></p>
-        </div>
-        <div class="chat-main">
-          <div id="chat-header" class="chat-header">Selecione uma conversa</div>
+        </aside>
+
+        <section class="wa-chat">
+          <div class="wa-chat-top">
+            <div class="chat-title">
+              <div id="chat-avatar" class="avatar">?</div>
+              <div>
+                <div id="chat-header" class="chat-header">Selecione uma conversa</div>
+                <div id="chat-subtitle" class="chat-subtitle"> </div>
+              </div>
+            </div>
+            <div class="wa-actions">
+              <span class="dot">•</span>
+            </div>
+          </div>
+
           <div id="chat-history" class="chat-history"></div>
           <p id="chat-empty" class="hint">Nenhuma mensagem carregada.</p>
-        </div>
-      </section>
 
-      <section class="card">
-        <h1>Documentacao e video</h1>
-        <ol>
-          <li>Grave um video enviando mensagem pelo app e recebendo no WhatsApp.</li>
-          <li>Grave outro video criando um template de mensagem.</li>
-          <li>Envie os dois videos na analise do app.</li>
-        </ol>
-        <p class="hint">Teste rapido do webhook (usa o token configurado no servidor).</p>
-        <button type="button" id="webhook-test">Testar webhook</button>
-        <pre id="webhook-result" class="result" aria-live="polite"></pre>
-        <p class="hint">Veja detalhes em <a href="/privacy.html">Politica de Privacidade</a>.</p>
+          <div class="chat-composer">
+            <input id="chat-input" type="text" placeholder="Digite uma mensagem" disabled />
+            <button id="chat-send" type="button" disabled>Enviar</button>
+            <span id="chat-error" class="chat-error"></span>
+          </div>
+        </section>
       </section>
     </main>
 
-    <footer>
+    <footer class="footer">
       <span>Botzap CRM</span>
       <span class="dot">•</span>
       <a href="/privacy.html">Politica de Privacidade</a>

@@ -11,12 +11,19 @@ const convButton = document.getElementById("refresh-conversations");
 const convList = document.getElementById("conversation-list");
 const convEmpty = document.getElementById("conversation-empty");
 const chatHeader = document.getElementById("chat-header");
+const chatSubtitle = document.getElementById("chat-subtitle");
+const chatAvatar = document.getElementById("chat-avatar");
 const chatHistory = document.getElementById("chat-history");
 const chatEmpty = document.getElementById("chat-empty");
+const chatInput = document.getElementById("chat-input");
+const chatSend = document.getElementById("chat-send");
+const chatError = document.getElementById("chat-error");
+const searchInput = document.getElementById("conversation-search");
 
 const pretty = (data) => JSON.stringify(data, null, 2);
 let currentConversationId = null;
 let currentConversationName = null;
+let allConversations = [];
 
 async function ensureSession() {
   try {
@@ -37,22 +44,42 @@ async function ensureSession() {
   }
 }
 
+function initials(value) {
+  if (!value) return "?";
+  const parts = value.trim().split(/\s+/).slice(0, 2);
+  const chars = parts.map((p) => p[0]).join("");
+  return chars.toUpperCase();
+}
+
 function formatTime(value) {
   if (!value) return "";
   const ts = Number(value);
   const ms = ts > 1e12 ? ts : ts * 1000;
   const date = new Date(ms);
   if (Number.isNaN(date.getTime())) return String(value);
-  return date.toLocaleString("pt-BR");
+  return date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 }
 
 function setChatHeader(name, waId) {
-  if (!chatHeader) return;
+  if (!chatHeader || !chatSubtitle || !chatAvatar) return;
   if (!waId) {
     chatHeader.textContent = "Selecione uma conversa";
+    chatSubtitle.textContent = "";
+    chatAvatar.textContent = "?";
     return;
   }
-  chatHeader.textContent = name ? `${name} • ${waId}` : waId;
+  chatHeader.textContent = name || waId;
+  chatSubtitle.textContent = waId;
+  chatAvatar.textContent = initials(name || waId);
+}
+
+function setComposerEnabled(enabled) {
+  if (!chatInput || !chatSend) return;
+  chatInput.disabled = !enabled;
+  chatSend.disabled = !enabled;
+  if (!enabled) {
+    chatInput.value = "";
+  }
 }
 
 function renderThread(items) {
@@ -78,6 +105,8 @@ function renderThread(items) {
     bubble.appendChild(meta);
     chatHistory.appendChild(bubble);
   });
+
+  chatHistory.scrollTop = chatHistory.scrollHeight;
 }
 
 async function loadThread(waId) {
@@ -107,6 +136,58 @@ async function loadThread(waId) {
   }
 }
 
+function buildConversationItem(item, items) {
+  const div = document.createElement("div");
+  div.className = "conversation-item";
+  div.dataset.waId = item.wa_id || "";
+
+  if (currentConversationId && item.wa_id === currentConversationId) {
+    div.classList.add("active");
+  }
+
+  const avatar = document.createElement("div");
+  avatar.className = "avatar";
+  avatar.textContent = initials(item.name || item.wa_id);
+
+  const body = document.createElement("div");
+  body.className = "conversation-body";
+
+  const row = document.createElement("div");
+  row.className = "conversation-row";
+
+  const title = document.createElement("div");
+  title.textContent = item.name || item.wa_id || "Desconhecido";
+
+  const time = document.createElement("div");
+  time.className = "conversation-time";
+  time.textContent = formatTime(item.last_timestamp);
+
+  row.appendChild(title);
+  row.appendChild(time);
+
+  const preview = document.createElement("div");
+  preview.className = "conversation-preview";
+  const prefix = item.last_direction === "out" ? "Voce: " : "";
+  preview.textContent = `${prefix}${item.last_message || "(sem mensagem)"}`;
+
+  body.appendChild(row);
+  body.appendChild(preview);
+
+  div.appendChild(avatar);
+  div.appendChild(body);
+
+  div.addEventListener("click", () => {
+    currentConversationId = item.wa_id || null;
+    currentConversationName = item.name || null;
+    setChatHeader(currentConversationName, currentConversationId);
+    setComposerEnabled(Boolean(currentConversationId));
+    renderConversations(items);
+    loadThread(currentConversationId);
+  });
+
+  return div;
+}
+
 function renderConversations(items) {
   if (!convList || !convEmpty) return;
   convList.innerHTML = "";
@@ -114,60 +195,34 @@ function renderConversations(items) {
   if (!items || items.length === 0) {
     convEmpty.textContent = "Nenhuma conversa registrada ainda.";
     setChatHeader(null, null);
+    setComposerEnabled(false);
     renderThread([]);
     return;
   }
 
   convEmpty.textContent = "";
-  let hasActive = false;
-
   items.forEach((item) => {
-    const div = document.createElement("div");
-    div.className = "conversation-item";
-    div.dataset.waId = item.wa_id || "";
-
-    if (currentConversationId && item.wa_id === currentConversationId) {
-      div.classList.add("active");
-      hasActive = true;
-    }
-
-    const title = document.createElement("div");
-    title.className = "conversation-title";
-    title.textContent = item.name || item.wa_id || "Desconhecido";
-
-    const msg = document.createElement("div");
-    const prefix = item.last_direction === "out" ? "Voce: " : "";
-    msg.textContent = `${prefix}${item.last_message || "(sem mensagem)"}`;
-
-    const meta = document.createElement("div");
-    meta.className = "conversation-meta";
-    const time = formatTime(item.last_timestamp);
-    meta.textContent = `${item.wa_id || ""} ${time ? "• " + time : ""}`.trim();
-
-    div.appendChild(title);
-    div.appendChild(msg);
-    div.appendChild(meta);
-    div.addEventListener("click", () => {
-      currentConversationId = item.wa_id || null;
-      currentConversationName = item.name || null;
-      setChatHeader(currentConversationName, currentConversationId);
-      renderConversations(items);
-      loadThread(currentConversationId);
-    });
-
-    convList.appendChild(div);
+    convList.appendChild(buildConversationItem(item, items));
   });
 
-  if (!hasActive) {
-    const first = items[0];
-    currentConversationId = first?.wa_id || null;
-    currentConversationName = first?.name || null;
+  if (!currentConversationId && items[0]) {
+    currentConversationId = items[0].wa_id || null;
+    currentConversationName = items[0].name || null;
     setChatHeader(currentConversationName, currentConversationId);
-    renderConversations(items);
-    loadThread(currentConversationId);
-  } else if (currentConversationId) {
+    setComposerEnabled(Boolean(currentConversationId));
     loadThread(currentConversationId);
   }
+}
+
+function applySearch(items) {
+  if (!searchInput) return items;
+  const term = searchInput.value.trim().toLowerCase();
+  if (!term) return items;
+  return items.filter((item) => {
+    const name = (item.name || "").toLowerCase();
+    const id = (item.wa_id || "").toLowerCase();
+    return name.includes(term) || id.includes(term);
+  });
 }
 
 async function refreshConversations() {
@@ -186,7 +241,8 @@ async function refreshConversations() {
       if (convEmpty) convEmpty.textContent = "Erro ao carregar conversas.";
       return;
     }
-    renderConversations(data.data || []);
+    allConversations = data.data || [];
+    renderConversations(applySearch(allConversations));
   } catch {
     renderConversations([]);
     if (convEmpty) convEmpty.textContent = "Erro ao carregar conversas.";
@@ -213,6 +269,30 @@ async function postJson(url, payload) {
   return data;
 }
 
+async function sendChatMessage() {
+  if (!chatInput || !chatSend) return;
+  if (!currentConversationId) {
+    if (chatError) chatError.textContent = "Selecione uma conversa.";
+    return;
+  }
+  const text = chatInput.value.trim();
+  if (!text) return;
+
+  if (chatError) chatError.textContent = "";
+  chatSend.disabled = true;
+
+  try {
+    await postJson("/api/send-message", { to: currentConversationId, message: text });
+    chatInput.value = "";
+    await refreshConversations();
+    await loadThread(currentConversationId);
+  } catch {
+    if (chatError) chatError.textContent = "Falha ao enviar.";
+  } finally {
+    chatSend.disabled = false;
+  }
+}
+
 if (logoutButton) {
   logoutButton.addEventListener("click", async () => {
     try {
@@ -229,40 +309,65 @@ if (convButton) {
   });
 }
 
-sendForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  sendResult.textContent = "Enviando...";
-  const form = new FormData(sendForm);
-  const payload = {
-    to: form.get("to"),
-    message: form.get("message"),
-  };
-  try {
-    const data = await postJson("/api/send-message", payload);
-    sendResult.textContent = pretty(data);
-    refreshConversations();
-  } catch (err) {
-    sendResult.textContent = pretty(err);
-  }
-});
+if (searchInput) {
+  searchInput.addEventListener("input", () => {
+    renderConversations(applySearch(allConversations));
+  });
+}
 
-templateForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  templateResult.textContent = "Criando...";
-  const form = new FormData(templateForm);
-  const payload = {
-    name: form.get("name"),
-    category: form.get("category"),
-    language: form.get("language"),
-    body: form.get("body"),
-  };
-  try {
-    const data = await postJson("/api/create-template", payload);
-    templateResult.textContent = pretty(data);
-  } catch (err) {
-    templateResult.textContent = pretty(err);
-  }
-});
+if (chatSend) {
+  chatSend.addEventListener("click", () => {
+    sendChatMessage();
+  });
+}
+
+if (chatInput) {
+  chatInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      sendChatMessage();
+    }
+  });
+}
+
+if (sendForm) {
+  sendForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    sendResult.textContent = "Enviando...";
+    const form = new FormData(sendForm);
+    const payload = {
+      to: form.get("to"),
+      message: form.get("message"),
+    };
+    try {
+      const data = await postJson("/api/send-message", payload);
+      sendResult.textContent = pretty(data);
+      refreshConversations();
+    } catch (err) {
+      sendResult.textContent = pretty(err);
+    }
+  });
+}
+
+if (templateForm) {
+  templateForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    templateResult.textContent = "Criando...";
+    const form = new FormData(templateForm);
+    const payload = {
+      name: form.get("name"),
+      category: form.get("category"),
+      language: form.get("language"),
+      body: form.get("body"),
+    };
+    try {
+      const data = await postJson("/api/create-template", payload);
+      templateResult.textContent = pretty(data);
+    } catch (err) {
+      templateResult.textContent = pretty(err);
+    }
+  });
+}
 
 if (webhookButton && webhookResult) {
   webhookButton.addEventListener("click", async () => {
