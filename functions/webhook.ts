@@ -150,18 +150,23 @@ async function sendTextMessage(env: Env, to: string, text: string) {
   await callGraph(`${phoneNumberId}/messages`, token, body, version);
 }
 
-async function runFlow(env: Env, flow: Flow, contact: Contact, logNotes: string[]) {
+async function runFlow(
+  env: Env,
+  flow: Flow,
+  contact: Contact,
+  logNotes: string[],
+): Promise<boolean> {
   if (!flow || flow.enabled === false) return;
   const nodes = Array.isArray(flow.data?.nodes) ? flow.data?.nodes : [];
   const edges = Array.isArray(flow.data?.edges) ? flow.data?.edges : [];
-  if (!nodes.length || !edges.length) return;
+  if (!nodes.length || !edges.length) return false;
 
   const nodesById = new Map(nodes.map((node) => [node.id, node]));
   const startNodes = nodes.filter(
     (node) =>
       node.type === "start" && node.trigger === "Quando usuario enviar mensagem",
   );
-  if (!startNodes.length) return;
+  if (!startNodes.length) return false;
 
   const maxSteps = 40;
   for (const start of startNodes) {
@@ -203,6 +208,7 @@ async function runFlow(env: Env, flow: Flow, contact: Contact, logNotes: string[
     }
     logNotes.push(`steps:${steps}`);
   }
+  return true;
 }
 
 async function upsertConversation(
@@ -306,10 +312,13 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       });
       contactsChanged = true;
 
+      let executedCount = 0;
+      let logged = false;
       for (const flow of flows) {
         const tagsBefore = [...(contactRecord.tags || [])];
         const notes: string[] = [];
-        await runFlow(env, flow, contactRecord, notes);
+        const executed = await runFlow(env, flow, contactRecord, notes);
+        if (executed) executedCount += 1;
         const tagsAfter = [...(contactRecord.tags || [])];
         if (notes.length || tagsBefore.join(",") !== tagsAfter.join(",")) {
           logs.unshift({
@@ -322,7 +331,33 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
             tags_after: tagsAfter,
             notes,
           });
+          logged = true;
         }
+      }
+
+      if (!flows.length) {
+        logs.unshift({
+          ts: Date.now(),
+          wa_id: waId,
+          flow_name: "(nenhum fluxo)",
+          trigger: "Quando usuario enviar mensagem",
+          tags_before: [...(contactRecord.tags || [])],
+          tags_after: [...(contactRecord.tags || [])],
+          notes: ["flows:0"],
+        });
+        logged = true;
+      }
+
+      if (!logged) {
+        logs.unshift({
+          ts: Date.now(),
+          wa_id: waId,
+          flow_name: "(sem acao)",
+          trigger: "Quando usuario enviar mensagem",
+          tags_before: [...(contactRecord.tags || [])],
+          tags_after: [...(contactRecord.tags || [])],
+          notes: [`flows:${flows.length}`, `executados:${executedCount}`],
+        });
       }
 
       contactRecord = upsertContactList(contactList, contactRecord);
