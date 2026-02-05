@@ -6,45 +6,34 @@ const webhookButton = document.getElementById("webhook-test");
 const webhookResult = document.getElementById("webhook-result");
 const phoneButton = document.getElementById("phone-numbers");
 const phoneResult = document.getElementById("phone-result");
-const loginScreen = document.getElementById("login-screen");
-const appShell = document.getElementById("app-shell");
-const loginForm = document.getElementById("login-form");
-const loginError = document.getElementById("login-error");
 const logoutButton = document.getElementById("logout");
 const convButton = document.getElementById("refresh-conversations");
 const convList = document.getElementById("conversation-list");
 const convEmpty = document.getElementById("conversation-empty");
+const chatHeader = document.getElementById("chat-header");
+const chatHistory = document.getElementById("chat-history");
+const chatEmpty = document.getElementById("chat-empty");
 
 const pretty = (data) => JSON.stringify(data, null, 2);
+let currentConversationId = null;
+let currentConversationName = null;
 
-function showApp() {
-  if (loginScreen) loginScreen.hidden = true;
-  if (appShell) appShell.hidden = false;
-  if (logoutButton) logoutButton.hidden = false;
-  refreshConversations();
-}
-
-function showLogin() {
-  if (loginScreen) loginScreen.hidden = false;
-  if (appShell) appShell.hidden = true;
-  if (logoutButton) logoutButton.hidden = true;
-}
-
-async function checkSession() {
+async function ensureSession() {
   try {
     const res = await fetch("/api/session", { credentials: "include" });
     if (!res.ok) {
-      showLogin();
-      return;
+      window.location.href = "/";
+      return false;
     }
     const data = await res.json();
-    if (data && data.ok) {
-      showApp();
-    } else {
-      showLogin();
+    if (!data || !data.ok) {
+      window.location.href = "/";
+      return false;
     }
+    return true;
   } catch {
-    showLogin();
+    window.location.href = "/";
+    return false;
   }
 }
 
@@ -57,26 +46,98 @@ function formatTime(value) {
   return date.toLocaleString("pt-BR");
 }
 
+function setChatHeader(name, waId) {
+  if (!chatHeader) return;
+  if (!waId) {
+    chatHeader.textContent = "Selecione uma conversa";
+    return;
+  }
+  chatHeader.textContent = name ? `${name} • ${waId}` : waId;
+}
+
+function renderThread(items) {
+  if (!chatHistory || !chatEmpty) return;
+  chatHistory.innerHTML = "";
+
+  if (!items || items.length === 0) {
+    chatEmpty.textContent = "Nenhuma mensagem carregada.";
+    return;
+  }
+
+  chatEmpty.textContent = "";
+  items.forEach((item) => {
+    const bubble = document.createElement("div");
+    const direction = item.direction === "out" ? "outgoing" : "incoming";
+    bubble.className = `chat-bubble ${direction}`;
+    bubble.textContent = item.text || "(mensagem)";
+
+    const meta = document.createElement("div");
+    meta.className = "chat-bubble-meta";
+    meta.textContent = formatTime(item.timestamp);
+
+    bubble.appendChild(meta);
+    chatHistory.appendChild(bubble);
+  });
+}
+
+async function loadThread(waId) {
+  if (!waId) return;
+  if (!chatHistory || !chatEmpty) return;
+  chatEmpty.textContent = "Carregando...";
+  try {
+    const res = await fetch(`/api/conversation?wa_id=${encodeURIComponent(waId)}`, {
+      credentials: "include",
+    });
+    const text = await res.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = { raw: text };
+    }
+    if (!res.ok) {
+      renderThread([]);
+      chatEmpty.textContent = "Erro ao carregar mensagens.";
+      return;
+    }
+    renderThread(data.data || []);
+  } catch {
+    renderThread([]);
+    chatEmpty.textContent = "Erro ao carregar mensagens.";
+  }
+}
+
 function renderConversations(items) {
   if (!convList || !convEmpty) return;
   convList.innerHTML = "";
 
   if (!items || items.length === 0) {
     convEmpty.textContent = "Nenhuma conversa registrada ainda.";
+    setChatHeader(null, null);
+    renderThread([]);
     return;
   }
 
   convEmpty.textContent = "";
+  let hasActive = false;
+
   items.forEach((item) => {
     const div = document.createElement("div");
     div.className = "conversation-item";
+    div.dataset.waId = item.wa_id || "";
+
+    if (currentConversationId && item.wa_id === currentConversationId) {
+      div.classList.add("active");
+      hasActive = true;
+    }
 
     const title = document.createElement("div");
     title.className = "conversation-title";
     title.textContent = item.name || item.wa_id || "Desconhecido";
 
     const msg = document.createElement("div");
-    msg.textContent = item.last_message || "(sem mensagem)";
+    const prefix = item.last_direction === "out" ? "Voce: " : "";
+    msg.textContent = `${prefix}${item.last_message || "(sem mensagem)"}`;
 
     const meta = document.createElement("div");
     meta.className = "conversation-meta";
@@ -86,8 +147,27 @@ function renderConversations(items) {
     div.appendChild(title);
     div.appendChild(msg);
     div.appendChild(meta);
+    div.addEventListener("click", () => {
+      currentConversationId = item.wa_id || null;
+      currentConversationName = item.name || null;
+      setChatHeader(currentConversationName, currentConversationId);
+      renderConversations(items);
+      loadThread(currentConversationId);
+    });
+
     convList.appendChild(div);
   });
+
+  if (!hasActive) {
+    const first = items[0];
+    currentConversationId = first?.wa_id || null;
+    currentConversationName = first?.name || null;
+    setChatHeader(currentConversationName, currentConversationId);
+    renderConversations(items);
+    loadThread(currentConversationId);
+  } else if (currentConversationId) {
+    loadThread(currentConversationId);
+  }
 }
 
 async function refreshConversations() {
@@ -133,29 +213,12 @@ async function postJson(url, payload) {
   return data;
 }
 
-if (loginForm && loginError) {
-  loginForm.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    loginError.textContent = "";
-    const form = new FormData(loginForm);
-    const email = String(form.get("email") || "").trim();
-    const password = String(form.get("password") || "").trim();
-
-    try {
-      await postJson("/api/login", { email, password });
-      showApp();
-    } catch {
-      loginError.textContent = "Email ou senha invalidos.";
-    }
-  });
-}
-
 if (logoutButton) {
   logoutButton.addEventListener("click", async () => {
     try {
       await postJson("/api/logout", {});
     } finally {
-      showLogin();
+      window.location.href = "/";
     }
   });
 }
@@ -177,6 +240,7 @@ sendForm.addEventListener("submit", async (event) => {
   try {
     const data = await postJson("/api/send-message", payload);
     sendResult.textContent = pretty(data);
+    refreshConversations();
   } catch (err) {
     sendResult.textContent = pretty(err);
   }
@@ -224,4 +288,6 @@ if (phoneButton && phoneResult) {
   });
 }
 
-checkSession();
+ensureSession().then((ok) => {
+  if (ok) refreshConversations();
+});

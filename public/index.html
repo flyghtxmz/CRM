@@ -3,21 +3,19 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Botzap CRM</title>
-    <meta name="description" content="Botzap CRM - WhatsApp Cloud API" />
+    <title>Botzap CRM - Login</title>
+    <meta name="description" content="Botzap CRM - Login" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <header>
       <div class="brand">Botzap CRM</div>
       <div class="subtitle">WhatsApp Cloud API</div>
-      <button id="logout" class="ghost" type="button" hidden>Sair</button>
     </header>
 
-    <section id="login-screen" class="login-screen" hidden>
+    <section class="login-screen">
       <div class="card login-card">
         <h1>Entrar</h1>
-        <p class="hint">Use as credenciais de teste: test@test.com / 1234</p>
         <form id="login-form">
           <label>
             Email
@@ -25,7 +23,7 @@
           </label>
           <label>
             Senha
-            <input type="password" name="password" placeholder="1234" required />
+            <input type="password" name="password" placeholder="Sua senha" required />
           </label>
           <button type="submit">Entrar</button>
         </form>
@@ -33,90 +31,6 @@
       </div>
     </section>
 
-    <div id="app-shell" hidden>
-      <main>
-      <section class="card">
-        <h1>Enviar mensagem</h1>
-        <p class="hint">Use um numero de WhatsApp real para testar o envio.</p>
-        <form id="send-form">
-          <label>
-            Numero (E.164)
-            <input name="to" placeholder="5511999999999" required />
-          </label>
-          <label>
-            Mensagem
-            <textarea name="message" rows="4" placeholder="Ola!" required></textarea>
-          </label>
-          <button type="submit">Enviar mensagem</button>
-        </form>
-        <pre id="send-result" class="result" aria-live="polite"></pre>
-      </section>
-
-      <section class="card">
-        <h1>Criar template</h1>
-        <p class="hint">Crie um template simples para a revisao da Meta.</p>
-        <form id="template-form">
-          <label>
-            Nome do template
-            <input name="name" placeholder="boas_vindas" required />
-          </label>
-          <label>
-            Categoria
-            <select name="category" required>
-              <option value="MARKETING">MARKETING</option>
-              <option value="UTILITY">UTILITY</option>
-              <option value="AUTHENTICATION">AUTHENTICATION</option>
-            </select>
-          </label>
-          <label>
-            Idioma
-            <input name="language" value="pt_BR" required />
-          </label>
-          <label>
-            Corpo do template
-            <textarea name="body" rows="4" placeholder="Ola {{1}}, seu pedido {{2}} foi confirmado." required></textarea>
-          </label>
-          <button type="submit">Criar template</button>
-        </form>
-        <pre id="template-result" class="result" aria-live="polite"></pre>
-      </section>
-
-      <section class="card">
-        <h1>Phone Number ID</h1>
-        <p class="hint">Liste os numeros vinculados a sua WABA e copie o ID.</p>
-        <button type="button" id="phone-numbers">Buscar numeros</button>
-        <pre id="phone-result" class="result" aria-live="polite"></pre>
-      </section>
-
-      <section class="card">
-        <h1>Conversas recentes</h1>
-        <p class="hint">Lista as ultimas pessoas que enviaram mensagem para voce.</p>
-        <button type="button" id="refresh-conversations">Atualizar conversas</button>
-        <div id="conversation-list" class="conversation-list"></div>
-        <p id="conversation-empty" class="hint"></p>
-      </section>
-
-      <section class="card">
-        <h1>Documentacao e video</h1>
-        <ol>
-          <li>Grave um video enviando mensagem pelo app e recebendo no WhatsApp.</li>
-          <li>Grave outro video criando um template de mensagem.</li>
-          <li>Envie os dois videos na analise do app.</li>
-        </ol>
-        <p class="hint">Teste rapido do webhook (usa o token configurado no servidor).</p>
-        <button type="button" id="webhook-test">Testar webhook</button>
-        <pre id="webhook-result" class="result" aria-live="polite"></pre>
-        <p class="hint">Veja detalhes em <a href="/privacy.html">Politica de Privacidade</a>.</p>
-      </section>
-      </main>
-
-      <footer>
-        <span>Botzap CRM</span>
-        <span class="dot">•</span>
-        <a href="/privacy.html">Politica de Privacidade</a>
-      </footer>
-    </div>
-
-    <script src="/app.js"></script>
+    <script src="/login.js"></script>
   </body>
 </html>

@@ -6,6 +6,7 @@ type Conversation = {
   last_message?: string;
   last_timestamp?: string | number;
   last_type?: string;
+  last_direction?: "in" | "out";
 };
 
 type StoredMessage = {
@@ -15,6 +16,7 @@ type StoredMessage = {
   type?: string;
   text?: string;
   name?: string;
+  direction?: "in" | "out";
 };
 
 function messagePreview(message: any) {
@@ -103,6 +105,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       last_message: messagePreview(message),
       last_timestamp: message.timestamp,
       last_type: message.type,
+      last_direction: "in",
     };
 
     await upsertConversation(kv, list, conversation);
@@ -117,6 +120,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       type: message.type,
       text: messagePreview(message),
       name,
+      direction: "in",
     });
     if (threadList.length > 50) {
       threadList.splice(0, threadList.length - 50);
