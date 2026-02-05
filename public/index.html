@@ -11,9 +11,30 @@
     <header>
       <div class="brand">Botzap CRM</div>
       <div class="subtitle">WhatsApp Cloud API</div>
+      <button id="logout" class="ghost" type="button" hidden>Sair</button>
     </header>
 
-    <main>
+    <section id="login-screen" class="login-screen" hidden>
+      <div class="card login-card">
+        <h1>Entrar</h1>
+        <p class="hint">Use as credenciais de teste: test@test.com / 1234</p>
+        <form id="login-form">
+          <label>
+            Email
+            <input type="email" name="email" placeholder="test@test.com" required />
+          </label>
+          <label>
+            Senha
+            <input type="password" name="password" placeholder="1234" required />
+          </label>
+          <button type="submit">Entrar</button>
+        </form>
+        <p id="login-error" class="error" role="alert"></p>
+      </div>
+    </section>
+
+    <div id="app-shell" hidden>
+      <main>
       <section class="card">
         <h1>Enviar mensagem</h1>
         <p class="hint">Use um numero de WhatsApp real para testar o envio.</p>
@@ -79,13 +100,14 @@
         <pre id="webhook-result" class="result" aria-live="polite"></pre>
         <p class="hint">Veja detalhes em <a href="/privacy.html">Politica de Privacidade</a>.</p>
       </section>
-    </main>
+      </main>
 
-    <footer>
-      <span>Botzap CRM</span>
-      <span class="dot">•</span>
-      <a href="/privacy.html">Politica de Privacidade</a>
-    </footer>
+      <footer>
+        <span>Botzap CRM</span>
+        <span class="dot">•</span>
+        <a href="/privacy.html">Politica de Privacidade</a>
+      </footer>
+    </div>
 
     <script src="/app.js"></script>
   </body>

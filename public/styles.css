@@ -21,6 +21,7 @@ body {
 header {
   padding: 32px 24px 12px;
   text-align: center;
+  position: relative;
 }
 
 .brand {
@@ -32,6 +33,23 @@ header {
 .subtitle {
   color: var(--muted);
   margin-top: 4px;
+}
+
+.ghost {
+  position: absolute;
+  right: 24px;
+  top: 28px;
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-weight: 600;
+}
+
+.ghost:hover {
+  background: #f3e6d5;
+  color: var(--ink);
 }
 
 main {
@@ -48,6 +66,17 @@ main {
   border-radius: 16px;
   padding: 20px 22px;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
+}
+
+.login-screen {
+  min-height: 70vh;
+  display: grid;
+  place-items: center;
+  padding: 16px 24px 40px;
+}
+
+.login-card {
+  width: min(420px, 100%);
 }
 
 h1 {
@@ -100,6 +129,12 @@ button:hover {
   border-radius: 10px;
   min-height: 60px;
   overflow: auto;
+}
+
+.error {
+  color: #b8382a;
+  font-weight: 700;
+  min-height: 20px;
 }
 
 footer {
