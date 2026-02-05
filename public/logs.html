@@ -3,38 +3,39 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Botzap CRM - Fluxos</title>
-    <meta name="description" content="Botzap CRM - Fluxos" />
+    <title>Botzap CRM - Logs</title>
+    <meta name="description" content="Botzap CRM - Logs de Fluxos" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <header class="topbar">
       <div>
         <div class="brand">Botzap CRM</div>
-        <div class="subtitle">Fluxos <span class="version">v0.22</span></div>
+        <div class="subtitle">Logs de Fluxos <span class="version">v0.22</span></div>
       </div>
       <div class="topbar-actions">
         <a class="ghost link" href="/app.html">Conversas</a>
         <a class="ghost link" href="/contacts.html">Contatos</a>
-        <a class="ghost link" href="/logs.html">Logs</a>
+        <a class="ghost link" href="/flows.html">Fluxos</a>
         <a class="ghost link" href="/tools.html">Ferramentas</a>
         <button id="logout" class="ghost" type="button">Sair</button>
       </div>
     </header>
 
     <main class="layout">
-      <section class="card flow-list-card">
-        <div class="flow-list-header">
-          <div>
-            <h1>Fluxos</h1>
-            <p class="hint">Crie e gerencie automacoes visuais para o WhatsApp.</p>
+      <section class="card logs-card">
+        <div class="logs-header">
+          <h1>Logs</h1>
+          <div class="logs-actions">
+            <button id="logs-refresh" type="button">Atualizar</button>
+            <button id="logs-clear" type="button" class="ghost">Limpar</button>
           </div>
-          <button id="create-flow" type="button">Novo fluxo</button>
         </div>
-        <div id="flow-list" class="flow-list"></div>
+        <div id="logs-list" class="logs-list"></div>
+        <p id="logs-empty" class="hint"></p>
       </section>
     </main>
 
-    <script src="/flows.js"></script>
+    <script src="/logs.js"></script>
   </body>
 </html>

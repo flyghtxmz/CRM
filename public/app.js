@@ -1,4 +1,4 @@
-﻿const sendForm = document.getElementById("send-form");
+const sendForm = document.getElementById("send-form");
 const sendResult = document.getElementById("send-result");
 const templateForm = document.getElementById("template-form");
 const templateResult = document.getElementById("template-result");
@@ -24,7 +24,7 @@ const pretty = (data) => JSON.stringify(data, null, 2);
 let currentConversationId = null;
 let currentConversationName = null;
 let allConversations = [];
-const autoRefreshIntervalMs = 15000;
+const autoRefreshIntervalMs = 4000;
 let autoRefreshTimer = null;
 
 async function ensureSession() {
@@ -64,9 +64,9 @@ function formatTime(value) {
 
 function statusSymbol(status) {
   if (!status) return { text: "", cls: "" };
-  if (status === "sent") return { text: "✓", cls: "status-sent" };
-  if (status === "delivered") return { text: "✓✓", cls: "status-delivered" };
-  if (status === "read") return { text: "✓✓", cls: "status-read" };
+  if (status === "sent") return { text: "?", cls: "status-sent" };
+  if (status === "delivered") return { text: "??", cls: "status-delivered" };
+  if (status === "read") return { text: "??", cls: "status-read" };
   return { text: "", cls: "" };
 }
 
@@ -228,11 +228,8 @@ function renderConversations(items) {
   if (!convList || !convEmpty) return;
   convList.innerHTML = "";
 
-  if (!items || items.length === 0) {
-    convEmpty.textContent = "Nenhuma conversa registrada ainda.";
-    setChatHeader(null, null);
-    setComposerEnabled(false);
-    renderThread([]);
+  if (!items.length) {
+    convEmpty.textContent = "Nenhuma conversa encontrada.";
     return;
   }
 
@@ -240,24 +237,16 @@ function renderConversations(items) {
   items.forEach((item) => {
     convList.appendChild(buildConversationItem(item, items));
   });
-
-  if (!currentConversationId && items[0]) {
-    currentConversationId = items[0].wa_id || null;
-    currentConversationName = items[0].name || null;
-    setChatHeader(currentConversationName, currentConversationId);
-    setComposerEnabled(Boolean(currentConversationId));
-    loadThread(currentConversationId);
-  }
 }
 
-function applySearch(items) {
-  if (!searchInput) return items;
+function applySearch(list) {
+  if (!searchInput) return list;
   const term = searchInput.value.trim().toLowerCase();
-  if (!term) return items;
-  return items.filter((item) => {
+  if (!term) return list;
+  return list.filter((item) => {
     const name = (item.name || "").toLowerCase();
-    const id = (item.wa_id || "").toLowerCase();
-    return name.includes(term) || id.includes(term);
+    const waId = (item.wa_id || "").toLowerCase();
+    return name.includes(term) || waId.includes(term);
   });
 }
 
@@ -273,21 +262,19 @@ async function refreshConversations() {
       data = { raw: text };
     }
     if (!res.ok) {
-      renderConversations([]);
-      if (convEmpty) convEmpty.textContent = "Erro ao carregar conversas.";
+      convEmpty.textContent = "Erro ao carregar conversas.";
       return;
     }
-    allConversations = Array.isArray(data.data) ? data.data.slice() : [];
-    allConversations.sort((a, b) => Number(b.last_timestamp || 0) - Number(a.last_timestamp || 0));
-    renderConversations(applySearch(allConversations));
+
+    allConversations = Array.isArray(data.data) ? data.data : [];
+    const list = applySearch(allConversations);
+    renderConversations(list);
   } catch {
-    renderConversations([]);
-    if (convEmpty) convEmpty.textContent = "Erro ao carregar conversas.";
+    convEmpty.textContent = "Erro ao carregar conversas.";
   }
 }
 
 function startAutoRefresh() {
-  if (!convList || !chatHistory) return;
   if (autoRefreshTimer) {
     clearInterval(autoRefreshTimer);
   }
@@ -297,6 +284,13 @@ function startAutoRefresh() {
       await loadThread(currentConversationId);
     }
   }, autoRefreshIntervalMs);
+}
+
+function refreshNow() {
+  refreshConversations();
+  if (currentConversationId) {
+    loadThread(currentConversationId);
+  }
 }
 
 async function postJson(url, payload) {
@@ -355,7 +349,7 @@ if (logoutButton) {
 
 if (convButton) {
   convButton.addEventListener("click", () => {
-    refreshConversations();
+    refreshNow();
   });
 }
 
@@ -445,7 +439,14 @@ if (phoneButton && phoneResult) {
 
 ensureSession().then((ok) => {
   if (ok) {
-    refreshConversations();
+    refreshNow();
     startAutoRefresh();
+  }
+});
+
+window.addEventListener("focus", refreshNow);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") {
+    refreshNow();
   }
 });

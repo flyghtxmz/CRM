@@ -53,6 +53,18 @@ type Flow = {
   data?: { nodes?: FlowNode[]; edges?: FlowEdge[] };
 };
 
+type FlowLog = {
+  ts: number;
+  wa_id?: string;
+  flow_id?: string;
+  flow_name?: string;
+  trigger?: string;
+  steps?: number;
+  tags_before?: string[];
+  tags_after?: string[];
+  notes?: string[];
+};
+
 function messagePreview(message: any) {
   if (!message || !message.type) return "(mensagem)";
   if (message.type === "text") return message.text?.body || "(texto)";
@@ -138,7 +150,7 @@ async function sendTextMessage(env: Env, to: string, text: string) {
   await callGraph(`${phoneNumberId}/messages`, token, body, version);
 }
 
-async function runFlow(env: Env, flow: Flow, contact: Contact) {
+async function runFlow(env: Env, flow: Flow, contact: Contact, logNotes: string[]) {
   if (!flow || flow.enabled === false) return;
   const nodes = Array.isArray(flow.data?.nodes) ? flow.data?.nodes : [];
   const edges = Array.isArray(flow.data?.edges) ? flow.data?.edges : [];
@@ -163,26 +175,33 @@ async function runFlow(env: Env, flow: Flow, contact: Contact) {
       if (node.type === "condition") {
         const ok = evaluateCondition(node, contact);
         const branch = ok ? "yes" : "no";
+        logNotes.push(`cond:${node.id}:${ok ? "yes" : "no"}`);
         currentId = node.id;
         edge = findNextEdge(edges, currentId, branch);
         continue;
       }
       if (node.type === "action") {
         applyAction(node, contact);
+        if (node.action?.type === "tag") {
+          logNotes.push(`acao:tag:${node.action.tag || ""}`);
+        }
       }
       if (node.type === "message") {
         const body = String(node.body || "").trim();
         if (body) {
           try {
             await sendTextMessage(env, contact.wa_id, body);
+            logNotes.push(`msg:${node.id}:ok`);
           } catch {
             // ignore send errors (24h window, etc.)
+            logNotes.push(`msg:${node.id}:falhou`);
           }
         }
       }
       currentId = node.id;
       edge = findNextEdge(edges, currentId, "default");
     }
+    logNotes.push(`steps:${steps}`);
   }
 }
 
@@ -244,6 +263,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   const flowIndex = (await kv.get("flows:index", "json")) as Flow[] | null;
   const flows: Flow[] = Array.isArray(flowIndex) ? flowIndex : [];
   let contactsChanged = false;
+  const logList = (await kv.get("flow-logs:index", "json")) as FlowLog[] | null;
+  const logs: FlowLog[] = Array.isArray(logList) ? logList : [];
 
   const entry = payload.entry?.[0];
   const change = entry?.changes?.[0];
@@ -286,7 +307,22 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       contactsChanged = true;
 
       for (const flow of flows) {
-        await runFlow(env, flow, contactRecord);
+        const tagsBefore = [...(contactRecord.tags || [])];
+        const notes: string[] = [];
+        await runFlow(env, flow, contactRecord, notes);
+        const tagsAfter = [...(contactRecord.tags || [])];
+        if (notes.length || tagsBefore.join(",") !== tagsAfter.join(",")) {
+          logs.unshift({
+            ts: Date.now(),
+            wa_id: waId,
+            flow_id: flow.id,
+            flow_name: (flow as any)?.name,
+            trigger: "Quando usuario enviar mensagem",
+            tags_before: tagsBefore,
+            tags_after: tagsAfter,
+            notes,
+          });
+        }
       }
 
       contactRecord = upsertContactList(contactList, contactRecord);
@@ -358,6 +394,11 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
   if (contactsChanged) {
     await kv.put("contacts:index", JSON.stringify(contactList));
+  }
+
+  if (logs.length) {
+    if (logs.length > 200) logs.splice(200);
+    await kv.put("flow-logs:index", JSON.stringify(logs));
   }
 
   return new Response("OK", { status: 200 });
