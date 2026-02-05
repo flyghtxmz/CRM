@@ -1,4 +1,4 @@
-﻿import { Env, json } from "./api/_utils";
+import { apiVersion, callGraph, Env, json, requireEnv } from "./api/_utils";
 
 type Conversation = {
   wa_id: string;
@@ -125,7 +125,20 @@ function findNextEdge(edges: FlowEdge[], from: string, branch: string) {
   );
 }
 
-function runFlow(flow: Flow, contact: Contact) {
+async function sendTextMessage(env: Env, to: string, text: string) {
+  const token = requireEnv(env, "WHATSAPP_TOKEN");
+  const phoneNumberId = requireEnv(env, "WHATSAPP_PHONE_NUMBER_ID");
+  const version = apiVersion(env);
+  const body = {
+    messaging_product: "whatsapp",
+    to,
+    type: "text",
+    text: { body: text },
+  };
+  await callGraph(`${phoneNumberId}/messages`, token, body, version);
+}
+
+async function runFlow(env: Env, flow: Flow, contact: Contact) {
   if (!flow || flow.enabled === false) return;
   const nodes = Array.isArray(flow.data?.nodes) ? flow.data?.nodes : [];
   const edges = Array.isArray(flow.data?.edges) ? flow.data?.edges : [];
@@ -139,7 +152,7 @@ function runFlow(flow: Flow, contact: Contact) {
   if (!startNodes.length) return;
 
   const maxSteps = 40;
-  startNodes.forEach((start) => {
+  for (const start of startNodes) {
     let currentId = start.id;
     let steps = 0;
     let edge = findNextEdge(edges, currentId, "default");
@@ -157,10 +170,20 @@ function runFlow(flow: Flow, contact: Contact) {
       if (node.type === "action") {
         applyAction(node, contact);
       }
+      if (node.type === "message") {
+        const body = String(node.body || "").trim();
+        if (body) {
+          try {
+            await sendTextMessage(env, contact.wa_id, body);
+          } catch {
+            // ignore send errors (24h window, etc.)
+          }
+        }
+      }
       currentId = node.id;
       edge = findNextEdge(edges, currentId, "default");
     }
-  });
+  }
 }
 
 async function upsertConversation(
@@ -262,7 +285,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       });
       contactsChanged = true;
 
-      flows.forEach((flow) => runFlow(flow, contactRecord));
+      for (const flow of flows) {
+        await runFlow(env, flow, contactRecord);
+      }
 
       contactRecord = upsertContactList(contactList, contactRecord);
       await kv.put(`contact:${waId}`, JSON.stringify(contactRecord));
@@ -337,3 +362,4 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
   return new Response("OK", { status: 200 });
 };
+
