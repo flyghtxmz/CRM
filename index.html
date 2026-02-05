@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dashboard Simples</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="page">
+      <aside class="sidebar">
+        <div class="brand">Insight</div>
+        <nav class="nav">
+          <a class="nav-link active" href="#">Visão geral</a>
+          <a class="nav-link" href="#">Vendas</a>
+          <a class="nav-link" href="#">Clientes</a>
+          <a class="nav-link" href="#">Relatórios</a>
+          <a class="nav-link" href="#">Configurações</a>
+        </nav>
+      </aside>
+
+      <main class="content">
+        <header class="header">
+          <div>
+            <p class="eyebrow">Bem-vindo(a) de volta, Ana</p>
+            <h1>Resumo do dia</h1>
+          </div>
+          <div class="header-actions">
+            <button class="ghost">Exportar</button>
+            <button class="primary">Criar relatório</button>
+          </div>
+        </header>
+
+        <section class="cards">
+          <article class="card">
+            <p class="card-title">Receita</p>
+            <h2>R$ 48.920</h2>
+            <p class="card-meta positive">▲ 12% vs. semana passada</p>
+          </article>
+          <article class="card">
+            <p class="card-title">Pedidos</p>
+            <h2>1.248</h2>
+            <p class="card-meta positive">▲ 6% vs. semana passada</p>
+          </article>
+          <article class="card">
+            <p class="card-title">Tickets abertos</p>
+            <h2>87</h2>
+            <p class="card-meta negative">▼ 3% vs. semana passada</p>
+          </article>
+        </section>
+
+        <section class="grid">
+          <article class="panel">
+            <header class="panel-header">
+              <h3>Performance semanal</h3>
+              <span class="badge">Atualizado hoje</span>
+            </header>
+            <div class="chart">
+              <div class="bar" style="--height: 70%">Seg</div>
+              <div class="bar" style="--height: 55%">Ter</div>
+              <div class="bar" style="--height: 80%">Qua</div>
+              <div class="bar" style="--height: 62%">Qui</div>
+              <div class="bar" style="--height: 90%">Sex</div>
+              <div class="bar" style="--height: 50%">Sáb</div>
+              <div class="bar" style="--height: 65%">Dom</div>
+            </div>
+          </article>
+
+          <article class="panel">
+            <header class="panel-header">
+              <h3>Atividade recente</h3>
+              <button class="link">Ver tudo</button>
+            </header>
+            <ul class="activity">
+              <li>
+                <div>
+                  <p class="activity-title">Nova assinatura anual</p>
+                  <p class="activity-meta">Empresa Solaris • há 12 min</p>
+                </div>
+                <span class="amount">+ R$ 4.900</span>
+              </li>
+              <li>
+                <div>
+                  <p class="activity-title">Upgrade de plano</p>
+                  <p class="activity-meta">Equipe Orion • há 1 h</p>
+                </div>
+                <span class="amount">+ R$ 1.200</span>
+              </li>
+              <li>
+                <div>
+                  <p class="activity-title">Ticket resolvido</p>
+                  <p class="activity-meta">Suporte • há 2 h</p>
+                </div>
+                <span class="status">Concluído</span>
+              </li>
+              <li>
+                <div>
+                  <p class="activity-title">Nova oportunidade</p>
+                  <p class="activity-meta">Lead Inova • há 5 h</p>
+                </div>
+                <span class="status warning">Em negociação</span>
+              </li>
+            </ul>
+          </article>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>
