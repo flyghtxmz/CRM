@@ -33,7 +33,7 @@ let linkFromId = null;
 let autoSaveTimer = null;
 
 const blockPresets = {
-  start: { title: "Inicio", body: "Entrada do fluxo" },
+  start: { title: "Quando", body: "" },
   message: { title: "Mensagem", body: "Texto da mensagem" },
   question: { title: "Pergunta", body: "Pergunta para o cliente" },
   tag: { title: "Tag", body: "Aplicar tag" },
@@ -92,8 +92,9 @@ function defaultData() {
       {
         id: startId,
         type: "start",
-        title: "Inicio",
-        body: "Mensagem recebida",
+        title: "Quando",
+        body: "",
+        trigger: "",
         x: 120,
         y: 120,
         tags: [],
@@ -226,12 +227,86 @@ function renderTags() {
   });
 }
 
+function renderStartNode(node) {
+  if (!surface) return;
+  const el = document.createElement("div");
+  el.className = "flow-node flow-node-start";
+  el.dataset.nodeId = node.id;
+  el.style.left = `${node.x}px`;
+  el.style.top = `${node.y}px`;
+
+  const header = document.createElement("div");
+  header.className = "flow-node-header flow-start-header";
+  const icon = document.createElement("span");
+  icon.className = "flow-start-icon";
+  icon.textContent = "⚡";
+  const title = document.createElement("span");
+  title.className = "flow-start-title";
+  title.textContent = "Quando...";
+  header.appendChild(icon);
+  header.appendChild(title);
+
+  const body = document.createElement("div");
+  body.className = "flow-start-body";
+  const desc = document.createElement("p");
+  desc.textContent =
+    "O gatilho é responsável por acionar a automação. Clique para adicionar um gatilho.";
+  body.appendChild(desc);
+
+  const triggerButton = document.createElement("button");
+  triggerButton.type = "button";
+  triggerButton.className = "trigger-button";
+  triggerButton.textContent = node.trigger ? node.trigger : "+ Novo Gatilho";
+  body.appendChild(triggerButton);
+
+  const menu = document.createElement("div");
+  menu.className = "trigger-menu";
+  const option = document.createElement("button");
+  option.type = "button";
+  option.textContent = "Quando usuário enviar mensagem";
+  option.addEventListener("click", () => {
+    node.trigger = option.textContent;
+    renderAll();
+    scheduleAutoSave();
+  });
+  menu.appendChild(option);
+  body.appendChild(menu);
+
+  triggerButton.addEventListener("click", () => {
+    menu.classList.toggle("open");
+  });
+
+  const footer = document.createElement("div");
+  footer.className = "flow-start-footer";
+  footer.textContent = "Então";
+
+  const connectorOut = document.createElement("div");
+  connectorOut.className = "connector out";
+  connectorOut.title = "Saida";
+  connectorOut.addEventListener("click", () => {
+    linkFromId = node.id;
+    clearLinking();
+    el.classList.add("linking");
+  });
+
+  el.appendChild(header);
+  el.appendChild(body);
+  el.appendChild(footer);
+  el.appendChild(connectorOut);
+  surface.appendChild(el);
+  enableDrag(el, node);
+}
+
 function renderNodes() {
   if (!surface) return;
   const existing = surface.querySelectorAll(".flow-node");
   existing.forEach((node) => node.remove());
 
   state.nodes.forEach((node) => {
+    if (node.type === "start") {
+      renderStartNode(node);
+      return;
+    }
     const el = document.createElement("div");
     el.className = `flow-node flow-node-${node.type}`;
     el.dataset.nodeId = node.id;
@@ -364,14 +439,21 @@ function enableDrag(element, node) {
   let startY = 0;
   let originX = 0;
   let originY = 0;
+  let frame = null;
+  let latestX = 0;
+  let latestY = 0;
   const onMove = (event) => {
-    const x = originX + (event.clientX - startX);
-    const y = originY + (event.clientY - startY);
-    node.x = Math.max(24, x);
-    node.y = Math.max(24, y);
-    element.style.left = `${node.x}px`;
-    element.style.top = `${node.y}px`;
-    renderEdges();
+    latestX = originX + (event.clientX - startX);
+    latestY = originY + (event.clientY - startY);
+    if (frame) return;
+    frame = requestAnimationFrame(() => {
+      frame = null;
+      node.x = Math.max(24, latestX);
+      node.y = Math.max(24, latestY);
+      element.style.left = `${node.x}px`;
+      element.style.top = `${node.y}px`;
+      renderEdges();
+    });
   };
   const onUp = () => {
     document.removeEventListener("mousemove", onMove);
@@ -445,6 +527,9 @@ function addBlock(type) {
     y: 140 + state.nodes.length * 20,
     tags: [],
   };
+  if (type === "start") {
+    node.trigger = "";
+  }
   state.nodes.push(node);
   renderAll();
   scheduleAutoSave();

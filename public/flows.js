@@ -85,8 +85,9 @@ function seedFlow(name) {
         {
           id: startId,
           type: "start",
-          title: "Inicio",
-          body: "Mensagem recebida",
+          title: "Quando",
+          body: "",
+          trigger: "",
           x: 120,
           y: 120,
           tags: [],

@@ -645,6 +645,7 @@ body.canva-page main.layout {
   position: relative;
   background: #edf3ef;
   overflow: auto;
+  scroll-behavior: smooth;
 }
 
 .flow-zoom {
@@ -680,6 +681,7 @@ body.canva-page main.layout {
   min-height: 900px;
   padding: 24px;
   transform-origin: 0 0;
+  will-change: transform;
 }
 
 .flow-links {
@@ -709,6 +711,7 @@ body.canva-page main.layout {
   border-radius: 12px;
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
   z-index: 2;
+  will-change: transform;
 }
 
 .flow-node-header {
@@ -736,6 +739,96 @@ body.canva-page main.layout {
   color: #b8382a;
   font-weight: 700;
   cursor: pointer;
+}
+
+.flow-node-start {
+  width: 320px;
+  border-radius: 16px;
+}
+
+.flow-start-header {
+  background: transparent;
+  border-bottom: none;
+  justify-content: flex-start;
+  font-weight: 700;
+}
+
+.flow-start-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: #e3f4ef;
+  color: #0b5b4b;
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+}
+
+.flow-start-title {
+  font-weight: 700;
+}
+
+.flow-start-body {
+  padding: 0 14px 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.flow-start-body p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.trigger-button {
+  width: 100%;
+  border: 2px dashed #7dc7a1;
+  background: #f4fffb;
+  color: #0b5b4b;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.trigger-button:hover {
+  border-color: var(--accent-dark);
+}
+
+.trigger-menu {
+  display: none;
+  margin-top: 6px;
+  gap: 6px;
+}
+
+.trigger-menu.open {
+  display: grid;
+}
+
+.trigger-menu button {
+  width: 100%;
+  text-align: left;
+  margin-top: 0;
+  background: #fff;
+  color: var(--ink);
+  border: 1px solid var(--wa-border);
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-weight: 600;
+}
+
+.flow-start-footer {
+  padding: 0 20px 12px;
+  font-size: 12px;
+  color: var(--muted);
+  text-align: right;
+}
+
+.flow-node-start .connector.out {
+  top: auto;
+  bottom: 16px;
+  transform: none;
 }
 
 .flow-node-body {
