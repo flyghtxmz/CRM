@@ -9,13 +9,21 @@ const resetButton = document.getElementById("reset-flow");
 const surface = document.getElementById("flow-surface");
 const svg = document.getElementById("flow-links");
 const flowNameInput = document.getElementById("flow-name");
+const zoomInButton = document.getElementById("zoom-in");
+const zoomOutButton = document.getElementById("zoom-out");
+const zoomResetButton = document.getElementById("zoom-reset");
+const zoomValue = document.getElementById("zoom-value");
 
 const FLOW_STORAGE_KEY = "botzap_flows_v1";
 const AUTO_SAVE_MS = 5000;
+const ZOOM_MIN = 0.6;
+const ZOOM_MAX = 1.6;
+const ZOOM_STEP = 0.1;
 
 let state = {
   flowId: null,
   flowName: "",
+  zoom: 1,
   nodes: [],
   edges: [],
   tags: [],
@@ -122,6 +130,7 @@ function loadFlow() {
   state = {
     flowId: flow.id,
     flowName: flow.name || "Fluxo sem nome",
+    zoom: typeof data.zoom === "number" ? data.zoom : 1,
     nodes: Array.isArray(data.nodes) ? data.nodes : [],
     edges: Array.isArray(data.edges) ? data.edges : [],
     tags: Array.isArray(data.tags) ? data.tags : [],
@@ -137,6 +146,7 @@ function loadFlow() {
   if (flowNameInput) {
     flowNameInput.value = state.flowName;
   }
+  applyZoom();
 
   return true;
 }
@@ -153,6 +163,7 @@ function saveFlow() {
       nodes: state.nodes,
       edges: state.edges,
       tags: state.tags,
+      zoom: state.zoom,
     },
   };
   if (idx >= 0) {
@@ -166,6 +177,21 @@ function saveFlow() {
 function scheduleAutoSave() {
   if (autoSaveTimer) clearTimeout(autoSaveTimer);
   autoSaveTimer = setTimeout(saveFlow, AUTO_SAVE_MS);
+}
+
+function clampZoom(value) {
+  return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, value));
+}
+
+function applyZoom() {
+  if (!surface) return;
+  const value = clampZoom(state.zoom || 1);
+  state.zoom = value;
+  surface.style.zoom = String(value);
+  if (zoomValue) {
+    zoomValue.textContent = `${Math.round(value * 100)}%`;
+  }
+  renderEdges();
 }
 
 function renderTags() {
@@ -290,21 +316,6 @@ function renderNodes() {
     });
     body.appendChild(tagChips);
 
-    const connectorIn = document.createElement("div");
-    connectorIn.className = "connector in";
-    connectorIn.title = "Entrada";
-    connectorIn.addEventListener("click", () => {
-      if (!linkFromId || linkFromId === node.id) return;
-      const exists = state.edges.some((edge) => edge.from === linkFromId && edge.to === node.id);
-      if (!exists) {
-        state.edges.push({ id: makeId("edge"), from: linkFromId, to: node.id });
-        renderEdges();
-        scheduleAutoSave();
-      }
-      linkFromId = null;
-      clearLinking();
-    });
-
     const connectorOut = document.createElement("div");
     connectorOut.className = "connector out";
     connectorOut.title = "Saida";
@@ -314,9 +325,26 @@ function renderNodes() {
       el.classList.add("linking");
     });
 
+    if (node.type !== "start") {
+      const connectorIn = document.createElement("div");
+      connectorIn.className = "connector in";
+      connectorIn.title = "Entrada";
+      connectorIn.addEventListener("click", () => {
+        if (!linkFromId || linkFromId === node.id) return;
+        const exists = state.edges.some((edge) => edge.from === linkFromId && edge.to === node.id);
+        if (!exists) {
+          state.edges.push({ id: makeId("edge"), from: linkFromId, to: node.id });
+          renderEdges();
+          scheduleAutoSave();
+        }
+        linkFromId = null;
+        clearLinking();
+      });
+      el.appendChild(connectorIn);
+    }
+
     el.appendChild(header);
     el.appendChild(body);
-    el.appendChild(connectorIn);
     el.appendChild(connectorOut);
     surface.appendChild(el);
 
@@ -431,6 +459,7 @@ function exportJson() {
       nodes: state.nodes,
       edges: state.edges,
       tags: state.tags,
+      zoom: state.zoom,
     },
   };
   const data = JSON.stringify(payload, null, 2);
@@ -506,6 +535,30 @@ if (flowNameInput) {
   flowNameInput.addEventListener("change", () => {
     state.flowName = flowNameInput.value.trim() || "Fluxo sem nome";
     saveFlow();
+  });
+}
+
+if (zoomInButton) {
+  zoomInButton.addEventListener("click", () => {
+    state.zoom = clampZoom((state.zoom || 1) + ZOOM_STEP);
+    applyZoom();
+    scheduleAutoSave();
+  });
+}
+
+if (zoomOutButton) {
+  zoomOutButton.addEventListener("click", () => {
+    state.zoom = clampZoom((state.zoom || 1) - ZOOM_STEP);
+    applyZoom();
+    scheduleAutoSave();
+  });
+}
+
+if (zoomResetButton) {
+  zoomResetButton.addEventListener("click", () => {
+    state.zoom = 1;
+    applyZoom();
+    scheduleAutoSave();
   });
 }
 

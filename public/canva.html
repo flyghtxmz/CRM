@@ -11,7 +11,7 @@
     <header class="topbar">
       <div>
         <div class="brand">Botzap CRM</div>
-        <div class="subtitle">Canva de Fluxos <span class="version">v0.09</span></div>
+        <div class="subtitle">Canva de Fluxos <span class="version">v0.10</span></div>
       </div>
       <div class="topbar-actions">
         <a class="ghost link" href="/app.html">Conversas</a>
@@ -59,6 +59,12 @@
         </aside>
 
         <section class="flow-canvas" id="flow-canvas">
+          <div class="flow-zoom">
+            <button type="button" id="zoom-out" class="ghost">-</button>
+            <span id="zoom-value">100%</span>
+            <button type="button" id="zoom-in" class="ghost">+</button>
+            <button type="button" id="zoom-reset" class="ghost">Reset</button>
+          </div>
           <div class="flow-surface" id="flow-surface">
             <svg id="flow-links" class="flow-links" aria-hidden="true"></svg>
           </div>

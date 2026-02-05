@@ -647,11 +647,39 @@ body.canva-page main.layout {
   overflow: auto;
 }
 
+.flow-zoom {
+  position: sticky;
+  top: 12px;
+  right: 16px;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid var(--wa-border);
+  border-radius: 999px;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+  z-index: 3;
+}
+
+.flow-zoom button {
+  margin-top: 0;
+  padding: 4px 10px;
+}
+
+.flow-zoom span {
+  min-width: 56px;
+  text-align: center;
+  font-weight: 700;
+}
+
 .flow-surface {
   position: relative;
   min-width: 1400px;
   min-height: 900px;
   padding: 24px;
+  transform-origin: 0 0;
 }
 
 .flow-links {
