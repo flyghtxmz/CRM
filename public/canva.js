@@ -1,4 +1,4 @@
-const logoutButton = document.getElementById("logout");
+﻿const logoutButton = document.getElementById("logout");
 const saveButton = document.getElementById("save-flow");
 const exportButton = document.getElementById("export-flow");
 const resetButton = document.getElementById("reset-flow");
@@ -37,6 +37,7 @@ const blockPresets = {
   message: { title: "Mensagem", body: "Texto da mensagem" },
   message_link: { title: "Mensagem com link", body: "Texto da mensagem", url: "" },
   message_short: { title: "Mensagem com link curto", body: "Texto da mensagem", url: "" },
+  message_image: { title: "Mensagem com imagem + link", body: "Legenda da imagem", url: "", image: "" },
   question: { title: "Pergunta", body: "Pergunta para o cliente" },
   tag: { title: "Tag", body: "Aplicar tag" },
   delay: { title: "Delay", body: "Esperar" },
@@ -49,6 +50,7 @@ const blockOptions = [
   { type: "message", label: "Mensagem" },
   { type: "message_link", label: "Mensagem com link" },
   { type: "message_short", label: "Mensagem com link curto" },
+  { type: "message_image", label: "Mensagem com imagem + link" },
   { type: "question", label: "Pergunta" },
   { type: "tag", label: "Tag" },
   { type: "delay", label: "Delay" },
@@ -167,7 +169,7 @@ async function loadFlow() {
       const normalized = rawRules.map(normalizeRule).filter(Boolean);
       node.rules = normalized.length ? [normalized[0]] : [];
     }
-    if (node.type === "message_short" && typeof node.image !== "string") {
+    if ((node.type === "message_short" || node.type === "message_image") && typeof node.image !== "string") {
       node.image = "";
     }
     if (node.type === "action") {
@@ -911,6 +913,166 @@ function renderLinkMessageNode(node) {
   enableDrag(el, node);
 }
 
+function renderImageMessageNode(node) {
+  if (!surface) return;
+  const el = document.createElement("div");
+  el.className = "flow-node flow-node-message-link flow-node-message-image";
+  el.dataset.nodeId = node.id;
+  el.style.left = `${node.x}px`;
+  el.style.top = `${node.y}px`;
+
+  const header = document.createElement("div");
+  header.className = "flow-node-header";
+  const title = document.createElement("input");
+  title.type = "text";
+  title.value = node.title || "Mensagem com imagem + link";
+  title.addEventListener("change", () => {
+    node.title = title.value;
+    scheduleAutoSave();
+  });
+  header.appendChild(title);
+  const deleteBtn = document.createElement("button");
+  deleteBtn.type = "button";
+  deleteBtn.textContent = "Excluir";
+  deleteBtn.addEventListener("click", () => {
+    state.nodes = state.nodes.filter((n) => n.id !== node.id);
+    state.edges = state.edges.filter((edge) => edge.from !== node.id && edge.to !== node.id);
+    renderAll();
+    scheduleAutoSave();
+  });
+  header.appendChild(deleteBtn);
+
+  const body = document.createElement("div");
+  body.className = "flow-node-body";
+
+  const textarea = document.createElement("textarea");
+  textarea.rows = 3;
+  textarea.placeholder = "Legenda da imagem";
+  textarea.value = node.body || "";
+  textarea.addEventListener("change", () => {
+    node.body = textarea.value;
+    if (typeof updatePreview === "function") updatePreview();
+    scheduleAutoSave();
+  });
+
+  const url = document.createElement("input");
+  url.type = "url";
+  url.placeholder = "URL final (com UTMs)";
+  url.value = node.url || "";
+  url.addEventListener("change", () => {
+    node.url = url.value;
+    if (typeof updatePreview === "function") updatePreview();
+    scheduleAutoSave();
+  });
+
+  const image = document.createElement("input");
+  image.type = "url";
+  image.placeholder = "URL da imagem (envio real)";
+  image.value = node.image || "";
+
+  let updatePreview = null;
+  const preview = document.createElement("div");
+  preview.className = "link-preview";
+  const previewLabel = document.createElement("div");
+  previewLabel.className = "link-preview-label";
+  previewLabel.textContent = "Preview enviado";
+  const card = document.createElement("div");
+  card.className = "link-preview-card";
+  const previewImage = document.createElement("img");
+  previewImage.alt = "Preview";
+  const previewPlaceholder = document.createElement("div");
+  previewPlaceholder.className = "link-preview-placeholder";
+  previewPlaceholder.textContent = "Sem imagem";
+  const meta = document.createElement("div");
+  meta.className = "link-preview-meta";
+  const metaTitle = document.createElement("div");
+  metaTitle.className = "link-preview-title";
+  metaTitle.textContent = "Imagem enviada";
+  const metaDesc = document.createElement("div");
+  metaDesc.className = "link-preview-desc";
+  const metaUrl = document.createElement("div");
+  metaUrl.className = "link-preview-url";
+  const metaNote = document.createElement("div");
+  metaNote.className = "link-preview-note";
+  metaNote.textContent = "Enviado como imagem (preview garantido)";
+  meta.appendChild(metaTitle);
+  meta.appendChild(metaDesc);
+  meta.appendChild(metaUrl);
+  meta.appendChild(metaNote);
+  card.appendChild(previewImage);
+  card.appendChild(previewPlaceholder);
+  card.appendChild(meta);
+  preview.appendChild(previewLabel);
+  preview.appendChild(card);
+
+  updatePreview = () => {
+    const imageValue = (node.image || "").trim();
+    const urlValue = (node.url || "").trim();
+    const captionValue = (node.body || "").trim();
+    metaDesc.textContent = captionValue ? captionValue : "Legenda da imagem";
+    metaUrl.textContent = urlValue ? urlValue : "Sem link";
+    if (imageValue) {
+      previewImage.src = imageValue;
+      previewImage.style.display = "block";
+      previewPlaceholder.style.display = "none";
+    } else {
+      previewImage.removeAttribute("src");
+      previewImage.style.display = "none";
+      previewPlaceholder.style.display = "grid";
+    }
+  };
+
+  image.addEventListener("change", () => {
+    node.image = image.value;
+    if (typeof updatePreview === "function") updatePreview();
+    scheduleAutoSave();
+  });
+
+  updatePreview();
+
+  body.appendChild(textarea);
+  body.appendChild(url);
+  body.appendChild(image);
+  body.appendChild(preview);
+
+  const connectorOut = document.createElement("div");
+  connectorOut.className = "connector out";
+  connectorOut.title = "Saida";
+  connectorOut.addEventListener("click", () => {
+    linkFromId = node.id;
+    linkFromBranch = "default";
+    clearLinking();
+    el.classList.add("linking");
+  });
+
+  const connectorIn = document.createElement("div");
+  connectorIn.className = "connector in";
+  connectorIn.title = "Entrada";
+  connectorIn.addEventListener("click", () => {
+    if (!linkFromId || linkFromId === node.id) return;
+    const branch = linkFromBranch || "default";
+    const exists = state.edges.some(
+      (edge) =>
+        edge.from === linkFromId &&
+        edge.to === node.id &&
+        (edge.branch || "default") === branch,
+    );
+    if (!exists) {
+      state.edges.push({ id: makeId("edge"), from: linkFromId, to: node.id, branch });
+      renderEdges();
+      scheduleAutoSave();
+    }
+    linkFromId = null;
+    resetLinking();
+  });
+
+  el.appendChild(header);
+  el.appendChild(body);
+  el.appendChild(connectorIn);
+  el.appendChild(connectorOut);
+  surface.appendChild(el);
+  enableDrag(el, node);
+}
 function renderNodes() {
   if (!surface) return;
   const existing = surface.querySelectorAll(".flow-node");
@@ -931,6 +1093,10 @@ function renderNodes() {
     }
     if (node.type === "message_link" || node.type === "message_short") {
       renderLinkMessageNode(node);
+      return;
+    }
+    if (node.type === "message_image") {
+      renderImageMessageNode(node);
       return;
     }
     const el = document.createElement("div");
@@ -1140,10 +1306,10 @@ function addBlockAt(type, x, y) {
     node.action = null;
     node.tags = [];
   }
-  if (type === "message_link" || type === "message_short") {
+  if (type === "message_link" || type === "message_short" || type === "message_image") {
     node.url = "";
   }
-  if (type === "message_short") {
+  if (type === "message_short" || type === "message_image") {
     node.image = "";
   }
   state.nodes.push(node);
@@ -1382,6 +1548,9 @@ document.addEventListener("keyup", (event) => {
     if (flowCanvas) flowCanvas.classList.remove("pan-ready");
   }
 });
+
+
+
 
 
 

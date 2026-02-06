@@ -1,4 +1,4 @@
-import { apiVersion, callGraph, Env, json, requireEnv } from "./api/_utils";
+﻿import { apiVersion, callGraph, Env, json, requireEnv } from "./api/_utils";
 
 type Conversation = {
   wa_id: string;
@@ -198,6 +198,22 @@ async function sendTextMessage(env: Env, to: string, text: string, preview = fal
   return callGraph(`${phoneNumberId}/messages`, token, body, version);
 }
 
+async function sendImageMessage(env: Env, to: string, imageUrl: string, caption = "") {
+  const token = requireEnv(env, "WHATSAPP_TOKEN");
+  const phoneNumberId = requireEnv(env, "WHATSAPP_PHONE_NUMBER_ID");
+  const version = apiVersion(env);
+  const body = {
+    messaging_product: "whatsapp",
+    to,
+    type: "image",
+    image: {
+      link: imageUrl,
+      ...(caption ? { caption } : {}),
+    },
+  };
+  return callGraph(`${phoneNumberId}/messages`, token, body, version);
+}
+
 function nowUnix() {
   return Math.floor(Date.now() / 1000);
 }
@@ -243,18 +259,18 @@ async function runFlow(
           logNotes.push(`acao:tag:${node.action.tag || ""}`);
         }
       }
-      if (node.type === "message" || node.type === "message_link" || node.type === "message_short") {
+      if (node.type === "message" || node.type === "message_link" || node.type === "message_short" || node.type === "message_image") {
         const body = String(node.body || "").trim();
         let url = "";
         if (node.type !== "message") {
           url = applyVars(String(node.url || "").trim(), contact);
         }
         let image = "";
-        if (node.type === "message_short") {
+        if (node.type === "message_short" || node.type === "message_image") {
           image = String(node.image || "").trim();
         }
         let finalUrl = url;
-        if (node.type === "message_short" && url) {
+        if ((node.type === "message_short" || node.type === "message_image") && url) {
           const shortened = await shortenUrl(env, url, image);
           if (shortened) {
             finalUrl = shortened;
@@ -264,7 +280,54 @@ async function runFlow(
           }
         }
         const text = finalUrl ? `${body}\n${finalUrl}`.trim() : body;
-        if (text) {
+        if (node.type === "message_image") {
+          if (!image) {
+            logNotes.push(`msg:${node.id}:sem_imagem`);
+          } else {
+            try {
+              const caption = text || "";
+              const data: any = await sendImageMessage(env, contact.wa_id, image, caption);
+              logNotes.push(`msg:${node.id}:ok`);
+
+              const kv = env.BOTZAP_KV;
+              if (kv) {
+                const ts = await nowUnix();
+                const convIndex = (await kv.get("conversations:index", "json")) as Conversation[] | null;
+                const list: Conversation[] = Array.isArray(convIndex) ? convIndex : [];
+                const previewText = caption || "[imagem]";
+                const conversation: Conversation = {
+                  wa_id: contact.wa_id,
+                  name: contact.name,
+                  last_message: previewText,
+                  last_timestamp: ts,
+                  last_type: "image",
+                  last_direction: "out",
+                  last_status: "sent",
+                };
+                await upsertConversation(kv, list, conversation);
+
+                const threadKey = `thread:${contact.wa_id}`;
+                const thread = (await kv.get(threadKey, "json")) as StoredMessage[] | null;
+                const threadList: StoredMessage[] = Array.isArray(thread) ? thread : [];
+                threadList.push({
+                  id: data?.messages?.[0]?.id,
+                  from: "me",
+                  timestamp: String(ts),
+                  type: "image",
+                  text: previewText,
+                  direction: "out",
+                  status: "sent",
+                });
+                if (threadList.length > 50) {
+                  threadList.splice(0, threadList.length - 50);
+                }
+                await kv.put(threadKey, JSON.stringify(threadList));
+              }
+            } catch {
+              logNotes.push(`msg:${node.id}:falhou`);
+            }
+          }
+        } else if (text) {
           try {
             const data: any = await sendTextMessage(
               env,
@@ -548,6 +611,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
   return new Response("OK", { status: 200 });
 };
+
 
 
 
