@@ -1044,6 +1044,77 @@ body.canva-page main.layout {
   gap: 8px;
 }
 
+.link-preview {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border: 1px dashed var(--wa-border);
+  border-radius: 10px;
+  background: #f8faf9;
+}
+
+.link-preview-label {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.link-preview-card {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  gap: 8px;
+  background: #fff;
+  border: 1px solid var(--wa-border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.link-preview-card img {
+  width: 72px;
+  height: 72px;
+  object-fit: cover;
+  display: block;
+}
+
+.link-preview-placeholder {
+  width: 72px;
+  height: 72px;
+  display: grid;
+  place-items: center;
+  background: #e9edef;
+  color: #6b7280;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.link-preview-meta {
+  padding: 6px 8px;
+  display: grid;
+  gap: 4px;
+}
+
+.link-preview-title {
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.link-preview-desc {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.link-preview-url {
+  color: #2b6cb0;
+  font-size: 11px;
+  word-break: break-all;
+}
+
+.link-preview-note {
+  color: #7a8087;
+  font-size: 10px;
+}
+
 
 .flow-node-header {
   display: flex;
@@ -1722,6 +1793,7 @@ body.canva-page main.layout {
     max-width: none;
   }
 }
+
 
 
 

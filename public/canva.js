@@ -792,12 +792,14 @@ function renderLinkMessageNode(node) {
     node.body = textarea.value;
     scheduleAutoSave();
   });
+  let updatePreview = null;
   const url = document.createElement("input");
   url.type = "url";
   url.placeholder = isShort ? "URL final (com UTMs)" : "https://seusite.com";
   url.value = node.url || "";
   url.addEventListener("change", () => {
     node.url = url.value;
+    if (typeof updatePreview === "function") updatePreview();
     scheduleAutoSave();
   });
   body.appendChild(textarea);
@@ -807,11 +809,67 @@ function renderLinkMessageNode(node) {
     image.type = "url";
     image.placeholder = "URL da imagem (preview)";
     image.value = node.image || "";
+
+    const preview = document.createElement("div");
+    preview.className = "link-preview";
+    const previewLabel = document.createElement("div");
+    previewLabel.className = "link-preview-label";
+    previewLabel.textContent = "Preview do link";
+    const card = document.createElement("div");
+    card.className = "link-preview-card";
+    const previewImage = document.createElement("img");
+    previewImage.alt = "Preview";
+    const previewPlaceholder = document.createElement("div");
+    previewPlaceholder.className = "link-preview-placeholder";
+    previewPlaceholder.textContent = "Sem imagem";
+    const meta = document.createElement("div");
+    meta.className = "link-preview-meta";
+    const metaTitle = document.createElement("div");
+    metaTitle.className = "link-preview-title";
+    metaTitle.textContent = "Botzap Link";
+    const metaDesc = document.createElement("div");
+    metaDesc.className = "link-preview-desc";
+    metaDesc.textContent = "Preview do WhatsApp";
+    const metaUrl = document.createElement("div");
+    metaUrl.className = "link-preview-url";
+    const metaNote = document.createElement("div");
+    metaNote.className = "link-preview-note";
+    metaNote.textContent = "O link curto sera gerado no envio";
+    meta.appendChild(metaTitle);
+    meta.appendChild(metaDesc);
+    meta.appendChild(metaUrl);
+    meta.appendChild(metaNote);
+    card.appendChild(previewImage);
+    card.appendChild(previewPlaceholder);
+    card.appendChild(meta);
+    preview.appendChild(previewLabel);
+    preview.appendChild(card);
+
+    updatePreview = () => {
+      const imageValue = (node.image || "").trim();
+      const urlValue = (node.url || "").trim();
+      metaUrl.textContent = urlValue ? urlValue : "URL final nao definida";
+      if (imageValue) {
+        previewImage.src = imageValue;
+        previewImage.style.display = "block";
+        previewPlaceholder.style.display = "none";
+      } else {
+        previewImage.removeAttribute("src");
+        previewImage.style.display = "none";
+        previewPlaceholder.style.display = "grid";
+      }
+    };
+
     image.addEventListener("change", () => {
       node.image = image.value;
+      if (typeof updatePreview === "function") updatePreview();
       scheduleAutoSave();
     });
+
+    updatePreview();
+
     body.appendChild(image);
+    body.appendChild(preview);
   }
 
   const connectorOut = document.createElement("div");
@@ -1324,6 +1382,7 @@ document.addEventListener("keyup", (event) => {
     if (flowCanvas) flowCanvas.classList.remove("pan-ready");
   }
 });
+
 
 
 
