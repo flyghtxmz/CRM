@@ -98,6 +98,47 @@ function uniqueTags(tags: string[]) {
   return output;
 }
 
+function applyVars(input: string, contact: Contact) {
+  if (!input) return "";
+  const waId = contact.wa_id || "";
+  const encoded = encodeURIComponent(waId);
+  return input.replace(/\{\{\s*(wa_id|phone|numero)\s*\}\}|\{(wa_id|phone|numero)\}/gi, encoded);
+}
+
+function shortenerBase(env: Env) {
+  const raw = env.SHORTENER_URL || "https://encurtalink.pages.dev";
+  return raw.replace(/\/+$/, "");
+}
+
+async function shortenUrl(env: Env, longUrl: string) {
+  if (!longUrl) return null;
+  try {
+    const base = shortenerBase(env);
+    const headers: Record<string, string> = { "content-type": "application/json" };
+    if (env.SHORTENER_API_KEY) {
+      headers["x-api-key"] = env.SHORTENER_API_KEY;
+    }
+    const res = await fetch(`${base}/api/shorten`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ url: longUrl }),
+    });
+    if (!res.ok) return null;
+    const data: any = await res.json().catch(() => null);
+    const shortUrl =
+      data?.short ||
+      data?.short_url ||
+      data?.shortUrl ||
+      data?.url ||
+      data?.link;
+    if (typeof shortUrl === "string" && shortUrl.startsWith("http")) {
+      return shortUrl;
+    }
+  } catch {
+    // ignore shortener failures
+  }
+  return null;
+}
 function upsertContactList(list: Contact[], update: Contact) {
   const existing = list.find((item) => item.wa_id === update.wa_id);
   const merged: Contact = {
@@ -197,17 +238,30 @@ async function runFlow(
           logNotes.push(`acao:tag:${node.action.tag || ""}`);
         }
       }
-      if (node.type === "message" || node.type === "message_link") {
+      if (node.type === "message" || node.type === "message_link" || node.type === "message_short") {
         const body = String(node.body || "").trim();
-        const url = node.type === "message_link" ? String(node.url || "").trim() : "";
-        const text = url ? `${body}\n${url}`.trim() : body;
+        let url = "";
+        if (node.type !== "message") {
+          url = applyVars(String(node.url || "").trim(), contact);
+        }
+        let finalUrl = url;
+        if (node.type === "message_short" && url) {
+          const shortened = await shortenUrl(env, url);
+          if (shortened) {
+            finalUrl = shortened;
+            logNotes.push(`short:${node.id}:ok`);
+          } else {
+            logNotes.push(`short:${node.id}:falha`);
+          }
+        }
+        const text = finalUrl ? `${body}\n${finalUrl}`.trim() : body;
         if (text) {
           try {
             const data: any = await sendTextMessage(
               env,
               contact.wa_id,
               text,
-              node.type === "message_link",
+              Boolean(finalUrl),
             );
             logNotes.push(`msg:${node.id}:ok`);
 
@@ -485,4 +539,5 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
   return new Response("OK", { status: 200 });
 };
+
 

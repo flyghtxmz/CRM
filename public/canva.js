@@ -48,6 +48,7 @@ const blockOptions = [
   { type: "start", label: "Quando" },
   { type: "message", label: "Mensagem" },
   { type: "message_link", label: "Mensagem com link" },
+  { type: "message_short", label: "Mensagem com link curto" },
   { type: "question", label: "Pergunta" },
   { type: "tag", label: "Tag" },
   { type: "delay", label: "Delay" },
@@ -748,7 +749,8 @@ function renderActionNode(node) {
   enableDrag(el, node);
 }
 
-function renderLinkMessageNode(node) {`n  const isShort = node.type === "message_short";
+function renderLinkMessageNode(node) {
+  const isShort = node.type === "message_short";
   if (!surface) return;
   const el = document.createElement("div");
   el.className = "flow-node flow-node-message-link";
@@ -855,7 +857,7 @@ function renderNodes() {
       renderActionNode(node);
       return;
     }
-    if (node.type === "message_link") {
+    if (node.type === "message_link" || node.type === "message_short") {
       renderLinkMessageNode(node);
       return;
     }
@@ -1066,7 +1068,7 @@ function addBlockAt(type, x, y) {
     node.action = null;
     node.tags = [];
   }
-  if (type === "message_link") {
+  if (type === "message_link" || type === "message_short") {
     node.url = "";
   }
   state.nodes.push(node);
@@ -1305,4 +1307,5 @@ document.addEventListener("keyup", (event) => {
     if (flowCanvas) flowCanvas.classList.remove("pan-ready");
   }
 });
+
 
