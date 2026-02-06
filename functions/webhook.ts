@@ -47,6 +47,7 @@ type FlowNode = {
   action?: { type?: string; tag?: string };
   body?: string;
   url?: string;
+  image?: string;
 };
 
 type Flow = {
@@ -110,7 +111,7 @@ function shortenerBase(env: Env) {
   return raw.replace(/\/+$/, "");
 }
 
-async function shortenUrl(env: Env, longUrl: string) {
+async function shortenUrl(env: Env, longUrl: string, imageUrl?: string) {
   if (!longUrl) return null;
   try {
     const base = shortenerBase(env);
@@ -118,10 +119,14 @@ async function shortenUrl(env: Env, longUrl: string) {
     if (env.SHORTENER_API_KEY) {
       headers["x-api-key"] = env.SHORTENER_API_KEY;
     }
+    const payload: Record<string, string> = { url: longUrl };
+    if (imageUrl) {
+      payload.image = imageUrl;
+    }
     const res = await fetch(`${base}/api/shorten`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ url: longUrl }),
+      body: JSON.stringify(payload),
     });
     if (!res.ok) return null;
     const data: any = await res.json().catch(() => null);
@@ -244,9 +249,13 @@ async function runFlow(
         if (node.type !== "message") {
           url = applyVars(String(node.url || "").trim(), contact);
         }
+        let image = "";
+        if (node.type === "message_short") {
+          image = String(node.image || "").trim();
+        }
         let finalUrl = url;
         if (node.type === "message_short" && url) {
-          const shortened = await shortenUrl(env, url);
+          const shortened = await shortenUrl(env, url, image);
           if (shortened) {
             finalUrl = shortened;
             logNotes.push(`short:${node.id}:ok`);
@@ -539,6 +548,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
   return new Response("OK", { status: 200 });
 };
+
+
 
 
 

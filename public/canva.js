@@ -167,6 +167,9 @@ async function loadFlow() {
       const normalized = rawRules.map(normalizeRule).filter(Boolean);
       node.rules = normalized.length ? [normalized[0]] : [];
     }
+    if (node.type === "message_short" && typeof node.image !== "string") {
+      node.image = "";
+    }
     if (node.type === "action") {
       if (node.action && typeof node.action === "object") return;
       if (typeof node.action === "string" && node.action.trim()) {
@@ -799,6 +802,17 @@ function renderLinkMessageNode(node) {
   });
   body.appendChild(textarea);
   body.appendChild(url);
+  if (isShort) {
+    const image = document.createElement("input");
+    image.type = "url";
+    image.placeholder = "URL da imagem (preview)";
+    image.value = node.image || "";
+    image.addEventListener("change", () => {
+      node.image = image.value;
+      scheduleAutoSave();
+    });
+    body.appendChild(image);
+  }
 
   const connectorOut = document.createElement("div");
   connectorOut.className = "connector out";
@@ -1071,6 +1085,9 @@ function addBlockAt(type, x, y) {
   if (type === "message_link" || type === "message_short") {
     node.url = "";
   }
+  if (type === "message_short") {
+    node.image = "";
+  }
   state.nodes.push(node);
   renderAll();
   scheduleAutoSave();
@@ -1307,5 +1324,7 @@ document.addEventListener("keyup", (event) => {
     if (flowCanvas) flowCanvas.classList.remove("pan-ready");
   }
 });
+
+
 
 
