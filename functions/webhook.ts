@@ -279,7 +279,7 @@ async function runFlow(
             logNotes.push(`short:${node.id}:falha`);
           }
         }
-        const text = finalUrl ? `${body}\n${finalUrl}`.trim() : body;
+        const text = finalUrl ? `${finalUrl}\n${body}`.trim() : body;
         if (node.type === "message_image") {
           if (!image) {
             logNotes.push(`msg:${node.id}:sem_imagem`);
@@ -611,6 +611,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
   return new Response("OK", { status: 200 });
 };
+
 
 
 
