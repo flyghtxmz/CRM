@@ -172,6 +172,12 @@ async function loadFlow() {
     if ((node.type === "message_short" || node.type === "message_image") && typeof node.image !== "string") {
       node.image = "";
     }
+    if ((node.type === "message_link" || node.type === "message_short" || node.type === "message_image") && typeof node.linkMode !== "string") {
+      node.linkMode = "first";
+    }
+    if ((node.type === "message_short" || node.type === "message_image") && typeof node.linkFormat !== "string") {
+      node.linkFormat = "default";
+    }
     if (node.type === "action") {
       if (node.action && typeof node.action === "object") return;
       if (typeof node.action === "string" && node.action.trim()) {
@@ -806,11 +812,37 @@ function renderLinkMessageNode(node) {
   });
   body.appendChild(textarea);
   body.appendChild(url);
+
+  const linkMode = document.createElement("select");
+  linkMode.innerHTML = `
+    <option value="first">Link primeiro</option>
+    <option value="last">Link por ultimo</option>
+    <option value="only">Somente link</option>
+  `;
+  linkMode.value = node.linkMode || "first";
+  linkMode.addEventListener("change", () => {
+    node.linkMode = linkMode.value;
+    scheduleAutoSave();
+  });
+  body.appendChild(linkMode);
+
   if (isShort) {
     const image = document.createElement("input");
     image.type = "url";
     image.placeholder = "URL da imagem (preview)";
     image.value = node.image || "";
+
+    const linkFormat = document.createElement("select");
+    linkFormat.innerHTML = `
+      <option value="default">Link padrao</option>
+      <option value="html">Forcar .html</option>
+      <option value="jpg">Forcar .jpg</option>
+    `;
+    linkFormat.value = node.linkFormat || "default";
+    linkFormat.addEventListener("change", () => {
+      node.linkFormat = linkFormat.value;
+      scheduleAutoSave();
+    });
 
     const preview = document.createElement("div");
     preview.className = "link-preview";
@@ -871,6 +903,7 @@ function renderLinkMessageNode(node) {
     updatePreview();
 
     body.appendChild(image);
+    body.appendChild(linkFormat);
     body.appendChild(preview);
   }
 
@@ -965,6 +998,30 @@ function renderImageMessageNode(node) {
     scheduleAutoSave();
   });
 
+  const linkMode = document.createElement("select");
+  linkMode.innerHTML = `
+    <option value="first">Link primeiro</option>
+    <option value="last">Link por ultimo</option>
+    <option value="only">Somente link</option>
+  `;
+  linkMode.value = node.linkMode || "first";
+  linkMode.addEventListener("change", () => {
+    node.linkMode = linkMode.value;
+    scheduleAutoSave();
+  });
+
+  const linkFormat = document.createElement("select");
+  linkFormat.innerHTML = `
+    <option value="default">Link padrao</option>
+    <option value="html">Forcar .html</option>
+    <option value="jpg">Forcar .jpg</option>
+  `;
+  linkFormat.value = node.linkFormat || "default";
+  linkFormat.addEventListener("change", () => {
+    node.linkFormat = linkFormat.value;
+    scheduleAutoSave();
+  });
+
   const image = document.createElement("input");
   image.type = "url";
   image.placeholder = "URL da imagem (envio real)";
@@ -1032,6 +1089,8 @@ function renderImageMessageNode(node) {
 
   body.appendChild(textarea);
   body.appendChild(url);
+  body.appendChild(linkMode);
+  body.appendChild(linkFormat);
   body.appendChild(image);
   body.appendChild(preview);
 
@@ -1312,6 +1371,12 @@ function addBlockAt(type, x, y) {
   if (type === "message_short" || type === "message_image") {
     node.image = "";
   }
+  if (type === "message_link" || type === "message_short" || type === "message_image") {
+    node.linkMode = "first";
+  }
+  if (type === "message_short" || type === "message_image") {
+    node.linkFormat = "default";
+  }
   state.nodes.push(node);
   renderAll();
   scheduleAutoSave();
@@ -1548,6 +1613,7 @@ document.addEventListener("keyup", (event) => {
     if (flowCanvas) flowCanvas.classList.remove("pan-ready");
   }
 });
+
 
 
 

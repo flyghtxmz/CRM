@@ -1,4 +1,4 @@
-﻿import { apiVersion, callGraph, Env, json, requireEnv } from "./api/_utils";
+import { apiVersion, callGraph, Env, json, requireEnv } from "./api/_utils";
 
 type Conversation = {
   wa_id: string;
@@ -48,6 +48,8 @@ type FlowNode = {
   body?: string;
   url?: string;
   image?: string;
+  linkMode?: string;
+  linkFormat?: string;
 };
 
 type Flow = {
@@ -143,6 +145,18 @@ async function shortenUrl(env: Env, longUrl: string, imageUrl?: string) {
     // ignore shortener failures
   }
   return null;
+}
+function applyShortFormat(shortUrl: string, format: string) {
+  const value = String(shortUrl || "");
+  if (!value) return value;
+  const mode = String(format || "").toLowerCase();
+  if (mode !== "html" && mode !== "jpg") return value;
+  const suffix = mode === "html" ? ".html" : ".jpg";
+  const parts = value.split("?");
+  const base = parts[0];
+  if (base.endsWith(suffix)) return value;
+  const next = `${base}${suffix}`;
+  return parts.length > 1 ? `${next}?${parts.slice(1).join("?")}` : next;
 }
 function upsertContactList(list: Contact[], update: Contact) {
   const existing = list.find((item) => item.wa_id === update.wa_id);
@@ -270,16 +284,27 @@ async function runFlow(
           image = String(node.image || "").trim();
         }
         let finalUrl = url;
+        const linkMode = String(node.linkMode || "first").toLowerCase();
+        const linkFormat = String(node.linkFormat || "default").toLowerCase();
         if ((node.type === "message_short" || node.type === "message_image") && url) {
           const shortened = await shortenUrl(env, url, image);
           if (shortened) {
-            finalUrl = shortened;
+            finalUrl = applyShortFormat(shortened, linkFormat);
             logNotes.push(`short:${node.id}:ok`);
           } else {
             logNotes.push(`short:${node.id}:falha`);
           }
         }
-        const text = finalUrl ? `${finalUrl}\n${body}`.trim() : body;
+        let text = body;
+        if (finalUrl) {
+          if (linkMode === "only") {
+            text = finalUrl;
+          } else if (linkMode === "last") {
+            text = `${body}\n${finalUrl}`.trim();
+          } else {
+            text = `${finalUrl}\n${body}`.trim();
+          }
+        }
         if (node.type === "message_image") {
           if (!image) {
             logNotes.push(`msg:${node.id}:sem_imagem`);
@@ -611,6 +636,10 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
   return new Response("OK", { status: 200 });
 };
+
+
+
+
 
 
 
