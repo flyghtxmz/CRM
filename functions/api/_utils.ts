@@ -1,4 +1,4 @@
-﻿export type Env = {
+export type Env = {
   WHATSAPP_TOKEN?: string;
   WHATSAPP_PHONE_NUMBER_ID?: string;
   WHATSAPP_WABA_ID?: string;
@@ -8,6 +8,8 @@
   BOTZAP_ADMIN_EMAIL?: string;
   BOTZAP_ADMIN_PASSWORD?: string;
   BOTZAP_SESSION_TTL?: string;
+  SHORTENER_URL?: string;
+  SHORTENER_API_KEY?: string;
 };
 
 export const corsHeaders = {

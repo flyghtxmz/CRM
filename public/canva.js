@@ -36,6 +36,7 @@ const blockPresets = {
   start: { title: "Quando", body: "" },
   message: { title: "Mensagem", body: "Texto da mensagem" },
   message_link: { title: "Mensagem com link", body: "Texto da mensagem", url: "" },
+  message_short: { title: "Mensagem com link curto", body: "Texto da mensagem", url: "" },
   question: { title: "Pergunta", body: "Pergunta para o cliente" },
   tag: { title: "Tag", body: "Aplicar tag" },
   delay: { title: "Delay", body: "Esperar" },
@@ -747,7 +748,7 @@ function renderActionNode(node) {
   enableDrag(el, node);
 }
 
-function renderLinkMessageNode(node) {
+function renderLinkMessageNode(node) {`n  const isShort = node.type === "message_short";
   if (!surface) return;
   const el = document.createElement("div");
   el.className = "flow-node flow-node-message-link";
@@ -759,7 +760,7 @@ function renderLinkMessageNode(node) {
   header.className = "flow-node-header";
   const title = document.createElement("input");
   title.type = "text";
-  title.value = node.title || "Mensagem com link";
+  title.value = node.title || (isShort ? "Mensagem com link curto" : "Mensagem com link");
   title.addEventListener("change", () => {
     node.title = title.value;
     scheduleAutoSave();
@@ -788,7 +789,7 @@ function renderLinkMessageNode(node) {
   });
   const url = document.createElement("input");
   url.type = "url";
-  url.placeholder = "https://seusite.com";
+  url.placeholder = isShort ? "URL final (com UTMs)" : "https://seusite.com";
   url.value = node.url || "";
   url.addEventListener("change", () => {
     node.url = url.value;
@@ -1304,3 +1305,4 @@ document.addEventListener("keyup", (event) => {
     if (flowCanvas) flowCanvas.classList.remove("pan-ready");
   }
 });
+
