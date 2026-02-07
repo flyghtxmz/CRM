@@ -1,5 +1,6 @@
 import { Env, getSession, json, options } from "./_utils";
 import { processDueDelayJobs } from "../webhook";
+import { dbGetContactById, dbGetContacts, dbUpsertContact } from "./_d1";
 
 type Contact = {
   wa_id: string;
@@ -34,6 +35,17 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
   const url = new URL(request.url);
   const id = url.searchParams.get("id");
+
+  if (env.BOTZAP_DB) {
+    if (id) {
+      const fromDb = (await dbGetContactById(env, id)) as Contact | null;
+      if (fromDb) return json({ ok: true, data: fromDb });
+    } else {
+      const fromDb = (await dbGetContacts(env, 300)) as Contact[];
+      if (fromDb.length > 0) return json({ ok: true, data: fromDb });
+    }
+  }
+
   if (id) {
     const contact = (await session.kv.get(`contact:${id}`, "json")) as Contact | null;
     if (!contact) return json({ ok: false, error: "Not found" }, 404);
@@ -87,6 +99,19 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
   await session.kv.put(`contact:${contact.wa_id}`, JSON.stringify(contact));
   await session.kv.put("contacts:index", JSON.stringify(contacts));
+
+  if (env.BOTZAP_DB) {
+    await dbUpsertContact(env, {
+      wa_id: contact.wa_id,
+      name: contact.name,
+      tags: contact.tags || [],
+      last_message: contact.last_message,
+      last_timestamp: contact.last_timestamp,
+      last_type: contact.last_type,
+      last_direction: contact.last_direction,
+      last_status: contact.last_status,
+    });
+  }
 
   return json({ ok: true, data: contact });
 };

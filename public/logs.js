@@ -59,7 +59,7 @@ function renderLogs(list) {
     top.className = "log-top";
     const title = document.createElement("div");
     title.className = "log-title";
-    title.textContent = `${log.flow_name || "Fluxo"} · ${log.wa_id || ""}`.trim();
+    title.textContent = `${log.flow_name || "Fluxo"} - ${log.wa_id || ""}`.trim();
     const time = document.createElement("div");
     time.className = "log-time";
     time.textContent = formatDate(log.ts);
@@ -74,7 +74,9 @@ function renderLogs(list) {
 
     const notes = document.createElement("div");
     notes.className = "log-notes";
-    notes.textContent = Array.isArray(log.notes) ? log.notes.join(" | ") : "";
+    const baseNotes = Array.isArray(log.notes) ? log.notes.join(" | ") : "";
+    const repeats = Number(log.repeat_count || 1);
+    notes.textContent = repeats > 1 ? `${baseNotes}${baseNotes ? " | " : ""}repeticoes:${repeats}` : baseNotes;
 
     row.appendChild(top);
     row.appendChild(meta);

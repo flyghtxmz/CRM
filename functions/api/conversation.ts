@@ -1,5 +1,6 @@
 import { Env, getSession, json } from "./_utils";
 import { processDueDelayJobs } from "../webhook";
+import { dbGetMessagesByWaId } from "./_d1";
 
 type StoredMessage = {
   id?: string;
@@ -30,6 +31,13 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   const waId = (url.searchParams.get("wa_id") || "").trim();
   if (!waId) {
     return json({ ok: false, error: "Missing wa_id" }, 400);
+  }
+
+  if (env.BOTZAP_DB) {
+    const fromDb = (await dbGetMessagesByWaId(env, waId, 300)) as StoredMessage[];
+    if (fromDb.length > 0) {
+      return json({ ok: true, data: fromDb });
+    }
   }
 
   const thread = (await session.kv.get(`thread:${waId}`, "json")) as StoredMessage[] | null;

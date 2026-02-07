@@ -1,5 +1,6 @@
 ﻿import { Env, getSession, json } from "./_utils";
 import { processDueDelayJobs } from "../webhook";
+import { dbGetConversations } from "./_d1";
 
 type Conversation = {
   wa_id: string;
@@ -24,6 +25,13 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   const url = new URL(request.url);
   const limitRaw = url.searchParams.get("limit") || "20";
   const limit = Math.max(1, Math.min(50, Number.parseInt(limitRaw, 10) || 20));
+
+  if (env.BOTZAP_DB) {
+    const fromDb = await dbGetConversations(env, limit);
+    if (fromDb.length > 0) {
+      return json({ ok: true, data: fromDb });
+    }
+  }
 
   const list = (await session.kv.get("conversations:index", "json")) as Conversation[] | null;
   const data = Array.isArray(list) ? list.slice(0, limit) : [];

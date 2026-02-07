@@ -1,4 +1,5 @@
 import { apiVersion, callGraph, Env, json, requireEnv } from "./api/_utils";
+import { dbFinalizeOutgoingMessage, dbInsertFlowLogs, dbUpdateMessageStatusByMessageId, dbUpsertContact, dbUpsertConversation, dbUpsertMessage } from "./api/_d1";
 
 type Conversation = {
   wa_id: string;
@@ -77,6 +78,7 @@ type FlowLog = {
   tags_before?: string[];
   tags_after?: string[];
   notes?: string[];
+  repeat_count?: number;
 };
 
 type DelayJob = {
@@ -96,6 +98,11 @@ type DelayJob = {
 const FLOW_TRIGGER_DEBOUNCE_SEC = 10;
 const FLOW_DELAY_INDEX_KEY = "flow-delay-jobs:index";
 const MAX_DELAY_JOBS_PER_TICK = 20;
+const THREAD_CACHE_LIMIT = 30;
+const CONTACT_CACHE_LIMIT = 120;
+const CONVERSATION_CACHE_LIMIT = 60;
+const FLOW_LOG_CACHE_LIMIT = 120;
+const FLOW_LOG_MERGE_WINDOW_MS = 15000;
 
 
 
@@ -272,9 +279,54 @@ async function takeDueDelayJobs(kv: KVNamespace, nowSec: number, limit: number) 
   return due;
 }
 
+function sameTextArray(a?: string[], b?: string[]) {
+  const left = Array.isArray(a) ? a : [];
+  const right = Array.isArray(b) ? b : [];
+  if (left.length !== right.length) return false;
+  for (let i = 0; i < left.length; i += 1) {
+    if (left[i] !== right[i]) return false;
+  }
+  return true;
+}
+
+function compactNotes(notes?: string[]) {
+  if (!Array.isArray(notes)) return [] as string[];
+  return notes.filter((n) => typeof n === "string" && !n.startsWith("repeat:"));
+}
+
 function appendFlowLog(logs: FlowLog[], log: FlowLog) {
-  logs.unshift(log);
-  if (logs.length > 200) logs.splice(200);
+  const first = logs[0];
+  const ts = Number(log.ts || Date.now());
+
+  if (first) {
+    const sameIdentity =
+      (first.wa_id || "") === (log.wa_id || "") &&
+      (first.flow_id || "") === (log.flow_id || "") &&
+      (first.flow_name || "") === (log.flow_name || "") &&
+      (first.trigger || "") === (log.trigger || "") &&
+      sameTextArray(first.tags_before, log.tags_before) &&
+      sameTextArray(first.tags_after, log.tags_after) &&
+      sameTextArray(compactNotes(first.notes), compactNotes(log.notes));
+
+    const delta = Math.abs(ts - Number(first.ts || 0));
+    if (sameIdentity && delta <= FLOW_LOG_MERGE_WINDOW_MS) {
+      const count = Number(first.repeat_count || 1) + 1;
+      first.repeat_count = count;
+      first.ts = ts;
+      const notes = compactNotes(first.notes);
+      notes.push("repeat:" + count);
+      first.notes = notes;
+      return;
+    }
+  }
+
+  const next: FlowLog = {
+    ...log,
+    ts,
+    repeat_count: Number(log.repeat_count || 1),
+  };
+  logs.unshift(next);
+  if (logs.length > FLOW_LOG_CACHE_LIMIT) logs.splice(FLOW_LOG_CACHE_LIMIT);
 }
 
 function applyContactRecord(base: Contact, updated: Contact) {
@@ -343,7 +395,7 @@ function upsertContactList(list: Contact[], update: Contact) {
   const next = list.filter((item) => item.wa_id !== update.wa_id);
   next.unshift(merged);
   next.sort((a, b) => toNumber(b.last_timestamp) - toNumber(a.last_timestamp));
-  if (next.length > 200) next.splice(200);
+  if (next.length > CONTACT_CACHE_LIMIT) next.splice(CONTACT_CACHE_LIMIT);
   list.splice(0, list.length, ...next);
 
   return merged;
@@ -429,6 +481,7 @@ function makeLocalId() {
 
 async function appendOutgoingMessage(
   kv: KVNamespace,
+  env: Env,
   contact: Contact,
   text: string,
   type: string,
@@ -463,16 +516,36 @@ async function appendOutgoingMessage(
     direction: "out",
     status: "sending",
   });
-  if (threadList.length > 50) {
-    threadList.splice(0, threadList.length - 50);
+  if (threadList.length > THREAD_CACHE_LIMIT) {
+    threadList.splice(0, threadList.length - THREAD_CACHE_LIMIT);
   }
   await kv.put(threadKey, JSON.stringify(threadList));
+
+  try {
+    await dbUpsertConversation(env, conversation);
+    await dbUpsertMessage(env, {
+      id: localId,
+      wa_id: contact.wa_id,
+      from: "me",
+      timestamp: String(ts),
+      type,
+      text,
+      media_url: media?.mediaUrl,
+      caption: media?.caption,
+      direction: "out",
+      status: "sending",
+      name: contact.name,
+    });
+  } catch {
+    // keep send path resilient if D1 fails
+  }
 
   return { localId, ts };
 }
 
 async function finalizeOutgoingMessage(
   kv: KVNamespace,
+  env: Env,
   waId: string,
   localId: string,
   status: "sent" | "failed",
@@ -498,10 +571,20 @@ async function finalizeOutgoingMessage(
     convo.last_status = status;
     await kv.put("conversations:index", JSON.stringify(list));
   }
+
+  try {
+    await dbFinalizeOutgoingMessage(env, waId, localId, status, messageId);
+    if (convo) {
+      await dbUpsertConversation(env, convo);
+    }
+  } catch {
+    // keep status path resilient if D1 fails
+  }
 }
 
 async function appendFlowEvent(
   kv: KVNamespace,
+  env: Env,
   contact: Contact,
   text: string,
   eventState: "active" | "done",
@@ -553,16 +636,36 @@ async function appendFlowEvent(
     event_kind: "delay",
     event_state: eventState,
   });
-  if (threadList.length > 50) {
-    threadList.splice(0, threadList.length - 50);
+  if (threadList.length > THREAD_CACHE_LIMIT) {
+    threadList.splice(0, threadList.length - THREAD_CACHE_LIMIT);
   }
   await kv.put(threadKey, JSON.stringify(threadList));
+
+  try {
+    await dbUpsertConversation(env, conversation);
+    await dbUpsertContact(env, updatedContact);
+    await dbUpsertMessage(env, {
+      id: eventId,
+      wa_id: contact.wa_id,
+      from: contact.wa_id,
+      timestamp: String(ts),
+      type: "event",
+      text,
+      direction: "in",
+      event_kind: "delay",
+      event_state: eventState,
+      name: contact.name,
+    });
+  } catch {
+    // keep flow event path resilient if D1 fails
+  }
 
   return eventId;
 }
 
 async function updateFlowEvent(
   kv: KVNamespace,
+  env: Env,
   contact: Contact,
   eventId: string,
   text: string,
@@ -597,8 +700,8 @@ async function updateFlowEvent(
     });
   }
 
-  if (threadList.length > 50) {
-    threadList.splice(0, threadList.length - 50);
+  if (threadList.length > THREAD_CACHE_LIMIT) {
+    threadList.splice(0, threadList.length - THREAD_CACHE_LIMIT);
   }
   await kv.put(threadKey, JSON.stringify(threadList));
 
@@ -632,6 +735,25 @@ async function updateFlowEvent(
   contact.last_type = updatedContact.last_type;
   contact.last_direction = updatedContact.last_direction;
   contact.tags = updatedContact.tags;
+
+  try {
+    await dbUpsertConversation(env, conversation);
+    await dbUpsertContact(env, updatedContact);
+    await dbUpsertMessage(env, {
+      id: eventId,
+      wa_id: contact.wa_id,
+      from: contact.wa_id,
+      timestamp: String(ts),
+      type: "event",
+      text,
+      direction: "in",
+      event_kind: "delay",
+      event_state: eventState,
+      name: contact.name,
+    });
+  } catch {
+    // keep flow event update resilient if D1 fails
+  }
 }
 
 async function runFlow(
@@ -714,7 +836,7 @@ async function runFlow(
 
           const humanDelay = formatDelayHuman(delayValue, delayUnit);
           const activeText = `Delay Ativado: Tempo estimado da proxima acao ${humanDelay}`;
-          const eventId = await appendFlowEvent(kv, contact, activeText, "active");
+          const eventId = await appendFlowEvent(kv, env, contact, activeText, "active");
           const nowSec = nowUnix();
 
           await enqueueDelayJob(kv, {
@@ -783,6 +905,7 @@ async function runFlow(
               const previewText = caption || "[imagem]";
               const local = await appendOutgoingMessage(
                 kv,
+                env,
                 contact,
                 previewText,
                 "image",
@@ -796,6 +919,7 @@ async function runFlow(
               if (kv && localId) {
                 await finalizeOutgoingMessage(
                   kv,
+                  env,
                   contact.wa_id,
                   localId,
                   "sent",
@@ -805,7 +929,7 @@ async function runFlow(
             } catch {
               logNotes.push(`msg:${node.id}:falhou`);
               if (kv && localId) {
-                await finalizeOutgoingMessage(kv, contact.wa_id, localId, "failed");
+                await finalizeOutgoingMessage(kv, env, contact.wa_id, localId, "failed");
               }
             }
           }
@@ -813,7 +937,7 @@ async function runFlow(
           const kv = env.BOTZAP_KV;
           let localId: string | null = null;
           if (kv) {
-            const local = await appendOutgoingMessage(kv, contact, text, "text");
+            const local = await appendOutgoingMessage(kv, env, contact, text, "text");
             localId = local.localId;
           }
           try {
@@ -826,8 +950,9 @@ async function runFlow(
             logNotes.push(`msg:${node.id}:ok`);
             if (kv && localId) {
               await finalizeOutgoingMessage(
-                kv,
-                contact.wa_id,
+                  kv,
+                  env,
+                  contact.wa_id,
                 localId,
                 "sent",
                 data?.messages?.[0]?.id,
@@ -837,7 +962,7 @@ async function runFlow(
             // ignore send errors (24h window, etc.)
             logNotes.push(`msg:${node.id}:falhou`);
             if (kv && localId) {
-              await finalizeOutgoingMessage(kv, contact.wa_id, localId, "failed");
+              await finalizeOutgoingMessage(kv, env, contact.wa_id, localId, "failed");
             }
           }
         }
@@ -866,6 +991,7 @@ export async function processDueDelayJobs(env: Env, limit = MAX_DELAY_JOBS_PER_T
 
   const logIndex = (await kv.get("flow-logs:index", "json")) as FlowLog[] | null;
   const logs: FlowLog[] = Array.isArray(logIndex) ? logIndex : [];
+  const logsStartCount = logs.length;
 
   let processed = 0;
   let errors = 0;
@@ -879,6 +1005,7 @@ export async function processDueDelayJobs(env: Env, limit = MAX_DELAY_JOBS_PER_T
           try {
             await updateFlowEvent(
               kv,
+              env,
               missingContact || { wa_id: job.wa_id, tags: [] },
               job.event_id,
               "Delay Concluido",
@@ -905,9 +1032,9 @@ export async function processDueDelayJobs(env: Env, limit = MAX_DELAY_JOBS_PER_T
         : { wa_id: job.wa_id, tags: [] };
 
       if (job.event_id) {
-        await updateFlowEvent(kv, contact, job.event_id, "Delay Concluido", "done");
+        await updateFlowEvent(kv, env, contact, job.event_id, "Delay Concluido", "done");
       } else {
-        await appendFlowEvent(kv, contact, "Delay Concluido", "done");
+        await appendFlowEvent(kv, env, contact, "Delay Concluido", "done");
       }
 
       const tagsBefore = [...(contact.tags || [])];
@@ -941,6 +1068,11 @@ export async function processDueDelayJobs(env: Env, limit = MAX_DELAY_JOBS_PER_T
       const merged = upsertContactList(contactList, contact);
       await kv.put("contacts:index", JSON.stringify(contactList));
       await kv.put(`contact:${contact.wa_id}`, JSON.stringify(merged));
+      try {
+        await dbUpsertContact(env, merged);
+      } catch {
+        // keep delay processor resilient if D1 contact upsert fails
+      }
 
       processed += 1;
     } catch (err) {
@@ -969,8 +1101,17 @@ export async function processDueDelayJobs(env: Env, limit = MAX_DELAY_JOBS_PER_T
     }
   }
 
-  if (logs.length > 200) logs.splice(200);
+  if (logs.length > FLOW_LOG_CACHE_LIMIT) logs.splice(FLOW_LOG_CACHE_LIMIT);
   await kv.put("flow-logs:index", JSON.stringify(logs));
+
+  const addedLogs = Math.max(0, logs.length - logsStartCount);
+  if (addedLogs > 0) {
+    try {
+      await dbInsertFlowLogs(env, logs.slice(0, addedLogs));
+    } catch {
+      // keep delay processor resilient if D1 log insert fails
+    }
+  }
 
   return { processed, errors };
 }
@@ -984,7 +1125,7 @@ async function upsertConversation(
   list.splice(0, list.length, ...filtered);
 
   list.sort((a, b) => Number(b.last_timestamp || 0) - Number(a.last_timestamp || 0));
-  if (list.length > 50) list.splice(50);
+  if (list.length > CONVERSATION_CACHE_LIMIT) list.splice(CONVERSATION_CACHE_LIMIT);
 
   await kv.put("conversations:index", JSON.stringify(list));
 }
@@ -1040,6 +1181,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   let contactsChanged = false;
   const logList = (await kv.get("flow-logs:index", "json")) as FlowLog[] | null;
   const logs: FlowLog[] = Array.isArray(logList) ? logList : [];
+  const logsStartCount = logs.length;
 
   const entry = payload.entry?.[0];
   const change = entry?.changes?.[0];
@@ -1068,6 +1210,11 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       };
 
       await upsertConversation(kv, list, conversation);
+      try {
+        await dbUpsertConversation(env, conversation);
+      } catch {
+        // keep webhook resilient if D1 conversation upsert fails
+      }
 
       const storedContact = (await kv.get(`contact:${waId}`, "json")) as Contact | null;
       let contactRecord = upsertContactList(contactList, {
@@ -1096,17 +1243,32 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         name,
         direction: "in",
       });
-      if (threadList.length > 50) {
-        threadList.splice(0, threadList.length - 50);
+      if (threadList.length > THREAD_CACHE_LIMIT) {
+        threadList.splice(0, threadList.length - THREAD_CACHE_LIMIT);
       }
       await kv.put(threadKey, JSON.stringify(threadList));
+      try {
+        await dbUpsertMessage(env, {
+          id: message.id,
+          wa_id: waId,
+          from: waId,
+          timestamp: message.timestamp,
+          type: message.type,
+          text: incomingCaption || messagePreview(message),
+          caption: incomingCaption || undefined,
+          name,
+          direction: "in",
+        });
+      } catch {
+        // keep webhook resilient if D1 message upsert fails
+      }
 
       const inboundText = messageConditionText(message);
       let executedCount = 0;
       let logged = false;
 
       if (!flows.length) {
-        logs.unshift({
+        appendFlowLog(logs, {
           ts: Date.now(),
           wa_id: waId,
           flow_name: "(nenhum fluxo)",
@@ -1123,7 +1285,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         const shouldRunFlow = triggerTs - lastTriggerTs > FLOW_TRIGGER_DEBOUNCE_SEC;
 
         if (!shouldRunFlow) {
-          logs.unshift({
+          appendFlowLog(logs, {
             ts: Date.now(),
             wa_id: waId,
             flow_name: "(gatilho ignorado)",
@@ -1143,6 +1305,11 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
           // Persist trigger marker before flow run to avoid duplicate trigger in burst.
           contactRecord = upsertContactList(contactList, contactRecord);
           await kv.put(`contact:${waId}`, JSON.stringify(contactRecord));
+          try {
+            await dbUpsertContact(env, contactRecord);
+          } catch {
+            // keep webhook resilient if D1 contact upsert fails
+          }
 
           try {
             for (const flow of flows) {
@@ -1152,7 +1319,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
               if (executed) executedCount += 1;
               const tagsAfter = [...(contactRecord.tags || [])];
               if (notes.length || tagsBefore.join(",") !== tagsAfter.join(",")) {
-                logs.unshift({
+                appendFlowLog(logs, {
                   ts: Date.now(),
                   wa_id: waId,
                   flow_id: flow.id,
@@ -1167,7 +1334,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
             }
           } catch (err) {
             const messageText = err instanceof Error ? err.message : String(err || "erro");
-            logs.unshift({
+            appendFlowLog(logs, {
               ts: Date.now(),
               wa_id: waId,
               flow_name: "(erro fluxo)",
@@ -1182,7 +1349,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       }
 
       if (!logged) {
-        logs.unshift({
+        appendFlowLog(logs, {
           ts: Date.now(),
           wa_id: waId,
           flow_name: "(sem acao)",
@@ -1195,6 +1362,11 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
       contactRecord = upsertContactList(contactList, contactRecord);
       await kv.put(`contact:${waId}`, JSON.stringify(contactRecord));
+      try {
+        await dbUpsertContact(env, contactRecord);
+      } catch {
+        // keep webhook resilient if D1 contact upsert fails
+      }
     }
   }
 
@@ -1221,6 +1393,11 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         }
         if (updated) {
           await kv.put(threadKey, JSON.stringify(thread));
+          try {
+            await dbUpdateMessageStatusByMessageId(env, waId, status.id, statusValue);
+          } catch {
+            // keep webhook resilient if D1 message status update fails
+          }
         }
       }
 
@@ -1228,6 +1405,11 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       if (convo && convo.last_direction === "out") {
         convo.last_status = statusValue;
         listChanged = true;
+        try {
+          await dbUpsertConversation(env, convo);
+        } catch {
+          // keep webhook resilient if D1 conversation upsert fails
+        }
       }
 
       const contactRecord = contactList.find((item) => item.wa_id === waId);
@@ -1235,6 +1417,11 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         contactRecord.last_status = statusValue;
         contactsChanged = true;
         await kv.put(`contact:${waId}`, JSON.stringify(contactRecord));
+        try {
+          await dbUpsertContact(env, contactRecord);
+        } catch {
+          // keep webhook resilient if D1 contact upsert fails
+        }
       }
     }
 
@@ -1248,8 +1435,17 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   }
 
   if (logs.length) {
-    if (logs.length > 200) logs.splice(200);
+    if (logs.length > FLOW_LOG_CACHE_LIMIT) logs.splice(FLOW_LOG_CACHE_LIMIT);
     await kv.put("flow-logs:index", JSON.stringify(logs));
+
+    const addedLogs = Math.max(0, logs.length - logsStartCount);
+    if (addedLogs > 0) {
+      try {
+        await dbInsertFlowLogs(env, logs.slice(0, addedLogs));
+      } catch {
+        // keep webhook resilient if D1 log insert fails
+      }
+    }
   }
 
   return new Response("OK", { status: 200 });
