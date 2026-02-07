@@ -278,6 +278,12 @@ function normalizeRule(rule) {
       tag: rule.tag || "",
     };
   }
+  if (rule.type === "message_contains") {
+    return {
+      type: "message_contains",
+      keyword: String(rule.keyword || rule.value || "").trim(),
+    };
+  }
   if (rule.label) {
     return { type: "text", label: rule.label };
   }
@@ -289,6 +295,10 @@ function formatRule(rule) {
   if (rule.type === "tag") {
     const opLabel = rule.op === "is_not" ? "nao e" : "esta";
     return `Tag ${opLabel} ${rule.tag || ""}`.trim();
+  }
+  if (rule.type === "message_contains") {
+    const keyword = String(rule.keyword || "").trim();
+    return keyword ? `Mensagem contem: ${keyword}` : "Mensagem contem";
   }
   return rule.label || "";
 }
@@ -489,6 +499,11 @@ function renderConditionNode(node) {
   });
   rootView.appendChild(tagOption);
 
+  const messageOption = document.createElement("button");
+  messageOption.type = "button";
+  messageOption.textContent = "Mensagem contem";
+  rootView.appendChild(messageOption);
+
   const tagView = document.createElement("div");
   tagView.className = "condition-popup-tag";
   const tagHeader = document.createElement("div");
@@ -571,9 +586,72 @@ function renderConditionNode(node) {
   tagView.appendChild(tagHeader);
   tagView.appendChild(columns);
 
+  const messageView = document.createElement("div");
+  messageView.className = "condition-popup-message";
+  const messageHeader = document.createElement("div");
+  messageHeader.className = "condition-popup-title";
+  const messageBackBtn = document.createElement("button");
+  messageBackBtn.type = "button";
+  messageBackBtn.className = "ghost";
+  messageBackBtn.textContent = "Voltar";
+  messageBackBtn.addEventListener("click", () => {
+    popup.dataset.view = "root";
+  });
+  const messageTitle = document.createElement("span");
+  messageTitle.textContent = "Mensagem contem";
+  messageHeader.appendChild(messageBackBtn);
+  messageHeader.appendChild(messageTitle);
+
+  const messagePanel = document.createElement("div");
+  messagePanel.className = "condition-message-panel";
+  const messageInput = document.createElement("input");
+  messageInput.type = "text";
+  messageInput.placeholder = "Digite a palavra-chave (ex: abacate)";
+
+  const messageActions = document.createElement("div");
+  messageActions.className = "condition-message-actions";
+  const messageSave = document.createElement("button");
+  messageSave.type = "button";
+  messageSave.textContent = "Aplicar";
+
+  const applyMessageRule = () => {
+    const keyword = messageInput.value.trim();
+    if (!keyword) {
+      messageInput.focus();
+      return;
+    }
+    node.rules = [{ type: "message_contains", keyword }];
+    popup.classList.remove("open");
+    renderAll();
+    scheduleAutoSave();
+    saveFlow();
+  };
+
+  messageSave.addEventListener("click", applyMessageRule);
+  messageInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      applyMessageRule();
+    }
+  });
+
+  messageActions.appendChild(messageSave);
+  messagePanel.appendChild(messageInput);
+  messagePanel.appendChild(messageActions);
+  messageView.appendChild(messageHeader);
+  messageView.appendChild(messagePanel);
+
+  messageOption.addEventListener("click", () => {
+    const current = Array.isArray(node.rules) ? node.rules[0] : null;
+    messageInput.value = current?.type === "message_contains" ? String(current.keyword || "") : "";
+    popup.dataset.view = "message";
+    messageInput.focus();
+  });
+
   popup.appendChild(popupHeader);
   popup.appendChild(rootView);
   popup.appendChild(tagView);
+  popup.appendChild(messageView);
   body.appendChild(popup);
 
   const connectorIn = document.createElement("div");

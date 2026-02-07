@@ -47,7 +47,7 @@ type FlowNode = {
   id: string;
   type: string;
   trigger?: string;
-  rules?: Array<{ type?: string; op?: string; tag?: string }>;
+  rules?: Array<{ type?: string; op?: string; tag?: string; keyword?: string; value?: string }>;
   action?: { type?: string; tag?: string };
   body?: string;
   url?: string;
@@ -91,6 +91,19 @@ function messagePreview(message: any) {
   if (message.type === "sticker") return "[sticker]";
   if (message.type === "location") return "[localizacao]";
   return `[${message.type}]`;
+}
+
+
+function messageConditionText(message: any) {
+  if (!message || !message.type) return "";
+  if (message.type === "text") return String(message.text?.body || "").trim();
+  if (message.type === "image") return String(message.image?.caption || "").trim();
+  if (message.type === "button") return String(message.button?.text || "").trim();
+  if (message.type === "interactive") {
+    const selected = String(message.interactive?.button_reply?.title || message.interactive?.list_reply?.title || "").trim();
+    if (selected) return selected;
+  }
+  return String(messagePreview(message) || "").trim();
 }
 
 function toNumber(value: unknown) {
@@ -189,14 +202,31 @@ function upsertContactList(list: Contact[], update: Contact) {
   return merged;
 }
 
-function evaluateCondition(node: FlowNode, contact: Contact) {
+function normalizeSearchText(value: unknown) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+}
+
+function evaluateCondition(node: FlowNode, contact: Contact, inboundText = "") {
   const rules = Array.isArray(node.rules) ? node.rules : [];
   if (!rules.length) return false;
   const tags = new Set(contact.tags || []);
+  const normalizedInboundText = normalizeSearchText(inboundText);
   return rules.every((rule) => {
-    if (rule.type !== "tag" || !rule.tag) return false;
-    if (rule.op === "is_not") return !tags.has(rule.tag);
-    return tags.has(rule.tag);
+    if (rule.type === "tag") {
+      if (!rule.tag) return false;
+      if (rule.op === "is_not") return !tags.has(rule.tag);
+      return tags.has(rule.tag);
+    }
+    if (rule.type === "message_contains") {
+      const keyword = normalizeSearchText(rule.keyword || rule.value || "");
+      if (!keyword) return false;
+      return normalizedInboundText.includes(keyword);
+    }
+    return false;
   });
 }
 
@@ -328,6 +358,7 @@ async function runFlow(
   flow: Flow,
   contact: Contact,
   logNotes: string[],
+  inboundText: string,
 ): Promise<boolean> {
   if (!flow || flow.enabled === false) return;
   const nodes = Array.isArray(flow.data?.nodes) ? flow.data?.nodes : [];
@@ -351,7 +382,7 @@ async function runFlow(
       if (!node) break;
       steps += 1;
       if (node.type === "condition") {
-        const ok = evaluateCondition(node, contact);
+        const ok = evaluateCondition(node, contact, inboundText);
         const branch = ok ? "yes" : "no";
         logNotes.push(`cond:${node.id}:${ok ? "yes" : "no"}`);
         currentId = node.id;
@@ -595,6 +626,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       }
       await kv.put(threadKey, JSON.stringify(threadList));
 
+      const inboundText = messageConditionText(message);
       let executedCount = 0;
       let logged = false;
 
@@ -641,7 +673,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
             for (const flow of flows) {
               const tagsBefore = [...(contactRecord.tags || [])];
               const notes: string[] = [];
-              const executed = await runFlow(env, flow, contactRecord, notes);
+              const executed = await runFlow(env, flow, contactRecord, notes, inboundText);
               if (executed) executedCount += 1;
               const tagsAfter = [...(contactRecord.tags || [])];
               if (notes.length || tagsBefore.join(",") !== tagsAfter.join(",")) {

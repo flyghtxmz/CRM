@@ -846,6 +846,7 @@ body.canva-page main.layout {
   margin-top: 0;
   border: 1px solid var(--wa-border);
   background: #f8faf9;
+  color: var(--ink);
   border-radius: 10px;
   padding: 8px 10px;
   text-align: left;
@@ -863,6 +864,38 @@ body.canva-page main.layout {
 
 .condition-popup[data-view="tag"] .condition-popup-root {
   display: none;
+}
+
+.condition-popup-message {
+  display: none;
+  gap: 10px;
+}
+
+.condition-popup[data-view="message"] .condition-popup-message {
+  display: grid;
+}
+
+.condition-popup[data-view="message"] .condition-popup-root {
+  display: none;
+}
+
+.condition-message-panel {
+  display: grid;
+  gap: 8px;
+}
+
+.condition-message-panel input {
+  border-radius: 10px;
+}
+
+.condition-message-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.condition-message-actions button {
+  margin-top: 0;
 }
 
 .condition-popup-title {
