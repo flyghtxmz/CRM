@@ -1,5 +1,5 @@
 import { apiVersion, callGraph, Env, json, requireEnv } from "./api/_utils";
-import { dbFinalizeOutgoingMessage, dbInsertFlowLogs, dbUpdateMessageStatusByMessageId, dbUpsertContact, dbUpsertConversation, dbUpsertMessage } from "./api/_d1";
+import { dbFinalizeOutgoingMessage, dbInsertFlowLogs, dbReleaseDelayJobClaim, dbTryClaimDelayJob, dbUpdateMessageStatusByMessageId, dbUpsertContact, dbUpsertConversation, dbUpsertMessage } from "./api/_d1";
 
 type Conversation = {
   wa_id: string;
@@ -103,6 +103,7 @@ const CONTACT_CACHE_LIMIT = 120;
 const CONVERSATION_CACHE_LIMIT = 60;
 const FLOW_LOG_CACHE_LIMIT = 120;
 const FLOW_LOG_MERGE_WINDOW_MS = 15000;
+const DELAY_JOB_FALLBACK_CLAIM_TTL_SEC = 6 * 3600;
 
 
 
@@ -254,6 +255,31 @@ async function enqueueDelayJob(kv: KVNamespace, job: DelayJob) {
     jobs.splice(0, jobs.length - 5000);
   }
   await kv.put(FLOW_DELAY_INDEX_KEY, JSON.stringify(jobs));
+}
+
+
+async function tryClaimDelayJob(env: Env, kv: KVNamespace, jobId: string) {
+  const dbClaim = await dbTryClaimDelayJob(env, jobId);
+  if (dbClaim !== null) return dbClaim;
+
+  const key = `flow-delay-claim:${jobId}`;
+  const exists = await kv.get(key);
+  if (exists) return false;
+  await kv.put(key, String(Date.now()), {
+    expirationTtl: DELAY_JOB_FALLBACK_CLAIM_TTL_SEC,
+  });
+  return true;
+}
+
+async function releaseDelayJobClaim(env: Env, kv: KVNamespace, jobId: string) {
+  try {
+    await dbReleaseDelayJobClaim(env, jobId);
+    return;
+  } catch {
+    // fallback below
+  }
+  const key = `flow-delay-claim:${jobId}`;
+  await kv.delete(key);
 }
 
 async function takeDueDelayJobs(kv: KVNamespace, nowSec: number, limit: number) {
@@ -997,7 +1023,10 @@ export async function processDueDelayJobs(env: Env, limit = MAX_DELAY_JOBS_PER_T
   let errors = 0;
 
   for (const job of dueJobs) {
+    let claimed = false;
     try {
+      claimed = await tryClaimDelayJob(env, kv, job.id);
+      if (!claimed) continue;
       const flow = flows.find((item) => item.id === job.flow_id && item.enabled !== false);
       if (!flow) {
         const missingContact = (await kv.get(`contact:${job.wa_id}`, "json")) as Contact | null;
@@ -1080,6 +1109,13 @@ export async function processDueDelayJobs(env: Env, limit = MAX_DELAY_JOBS_PER_T
       const messageText = err instanceof Error ? err.message : String(err || "erro");
       const retryCount = Number(job.retry_count || 0) + 1;
       if (retryCount <= 3) {
+        if (claimed) {
+          try {
+            await releaseDelayJobClaim(env, kv, job.id);
+          } catch {
+            // no-op
+          }
+        }
         await enqueueDelayJob(kv, {
           ...job,
           retry_count: retryCount,
@@ -1450,22 +1486,4 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
   return new Response("OK", { status: 200 });
 };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 

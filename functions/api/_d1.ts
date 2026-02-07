@@ -497,3 +497,54 @@ export async function dbClearFlowLogs(env: Env) {
 
   await database.prepare(`DELETE FROM flow_logs`).run();
 }
+
+function isUniqueConstraintError(err: unknown) {
+  const text = err instanceof Error ? err.message : String(err || "");
+  const normalized = text.toLowerCase();
+  return normalized.includes("unique") || normalized.includes("constraint");
+}
+
+function isMissingTableError(err: unknown, tableName: string) {
+  const text = err instanceof Error ? err.message : String(err || "");
+  const normalized = text.toLowerCase();
+  return normalized.includes("no such table") && normalized.includes(tableName.toLowerCase());
+}
+
+// Returns:
+// - true: claim created (job can run)
+// - false: claim already exists (job must be skipped)
+// - null: D1 unavailable/missing table (caller should fallback)
+export async function dbTryClaimDelayJob(env: Env, jobId: string) {
+  const database = db(env);
+  if (!database) return null as boolean | null;
+
+  try {
+    await database
+      .prepare(
+        `INSERT INTO delay_job_claims (job_id, claimed_at)
+        VALUES (?, ?)`,
+      )
+      .bind(asString(jobId), nowTs())
+      .run();
+    return true;
+  } catch (err) {
+    if (isUniqueConstraintError(err)) return false;
+    if (isMissingTableError(err, "delay_job_claims")) return null as boolean | null;
+    throw err;
+  }
+}
+
+export async function dbReleaseDelayJobClaim(env: Env, jobId: string) {
+  const database = db(env);
+  if (!database) return;
+
+  try {
+    await database
+      .prepare(`DELETE FROM delay_job_claims WHERE job_id=?`)
+      .bind(asString(jobId))
+      .run();
+  } catch (err) {
+    if (isMissingTableError(err, "delay_job_claims")) return;
+    throw err;
+  }
+}

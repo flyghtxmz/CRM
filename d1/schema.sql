@@ -66,3 +66,10 @@ CREATE TABLE IF NOT EXISTS flow_logs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_flow_logs_ts ON flow_logs(ts DESC);
+
+CREATE TABLE IF NOT EXISTS delay_job_claims (
+  job_id TEXT PRIMARY KEY,
+  claimed_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_delay_job_claims_claimed_at ON delay_job_claims(claimed_at DESC);
