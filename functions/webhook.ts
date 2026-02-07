@@ -99,7 +99,7 @@ async function acquireContactFlowLock(
     expires_at: now + ttlSeconds * 1000,
   };
   await kv.put(lockKey, JSON.stringify(next), {
-    expirationTtl: Math.max(2, ttlSeconds),
+    expirationTtl: Math.max(60, ttlSeconds),
   });
 
   // KV can be eventually consistent immediately after put; do not re-read here.
@@ -815,6 +815,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
   return new Response("OK", { status: 200 });
 };
+
 
 
 
