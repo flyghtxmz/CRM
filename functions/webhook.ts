@@ -98,12 +98,24 @@ async function acquireContactFlowLock(
     token,
     expires_at: now + ttlSeconds * 1000,
   };
+
   await kv.put(lockKey, JSON.stringify(next), {
     expirationTtl: Math.max(60, ttlSeconds),
   });
 
-  // KV can be eventually consistent immediately after put; do not re-read here.
-  return token;
+  // Confirm ownership: only the last writer should proceed.
+  for (let i = 0; i < 6; i += 1) {
+    await sleep(40 * (i + 1));
+    const current = (await kv.get(lockKey, "json")) as ContactFlowLock | null;
+    if (current && current.token === token) {
+      return token;
+    }
+    if (current && current.token !== token && Number(current.expires_at || 0) > Date.now()) {
+      return null;
+    }
+  }
+
+  return null;
 }
 
 async function releaseContactFlowLock(
@@ -655,7 +667,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       }
       await kv.put(threadKey, JSON.stringify(threadList));
 
-                  let executedCount = 0;
+      let executedCount = 0;
       let logged = false;
       let flowLockBusy = false;
       let flowLockToken: string | null = null;
@@ -815,6 +827,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
   return new Response("OK", { status: 200 });
 };
+
+
+
 
 
 
