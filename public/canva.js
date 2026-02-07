@@ -39,20 +39,17 @@ const blockPresets = {
   message_short: { title: "Mensagem com link curto", body: "Texto da mensagem", url: "" },
   message_image: { title: "Mensagem com imagem + link", body: "Legenda da imagem", url: "", image: "" },
   question: { title: "Pergunta", body: "Pergunta para o cliente" },
-  tag: { title: "Tag", body: "Aplicar tag" },
   delay: { title: "Delay", body: "Esperar" },
   condition: { title: "Condicao", body: "" },
   action: { title: "Acoes", body: "" },
 };
 
 const blockOptions = [
-  { type: "start", label: "Quando" },
   { type: "message", label: "Mensagem" },
   { type: "message_link", label: "Mensagem com link" },
   { type: "message_short", label: "Mensagem com link curto" },
   { type: "message_image", label: "Mensagem com imagem + link" },
   { type: "question", label: "Pergunta" },
-  { type: "tag", label: "Tag" },
   { type: "delay", label: "Delay" },
   { type: "condition", label: "Condicao" },
   { type: "action", label: "Acoes" },
@@ -136,6 +133,31 @@ function defaultData() {
     edges: [{ id: makeId("edge"), from: startId, to: messageId }],
   };
 }
+function ensureStartNode() {
+  const startNodes = state.nodes.filter((node) => node.type === "start");
+  if (!startNodes.length) {
+    state.nodes.unshift({
+      id: makeId("node"),
+      type: "start",
+      title: "Quando",
+      body: "",
+      trigger: "",
+      x: 120,
+      y: 120,
+      tags: [],
+    });
+    return;
+  }
+  const keep = startNodes[0];
+  state.nodes = state.nodes.filter((node) => node.type !== "start" || node === keep);
+  keep.title = "Quando";
+  if (typeof keep.trigger !== "string") keep.trigger = "";
+}
+
+function pruneEdges() {
+  const ids = new Set(state.nodes.map((node) => node.id));
+  state.edges = state.edges.filter((edge) => ids.has(edge.from) && ids.has(edge.to));
+}
 
 async function loadFlow() {
   const flowId = new URLSearchParams(window.location.search).get("id");
@@ -163,6 +185,13 @@ async function loadFlow() {
   state.nodes.forEach((node) => {
     if (node.type === "start" && typeof node.trigger !== "string") {
       node.trigger = "";
+    }
+    if (node.type === "tag") {
+      const tagValue = String(node.body || node.action?.tag || "").trim();
+      node.type = "action";
+      node.title = "Acoes";
+      node.body = "";
+      node.action = { type: "tag", tag: tagValue };
     }
     if (node.type === "condition") {
       const rawRules = Array.isArray(node.rules) ? node.rules : [];
@@ -194,6 +223,9 @@ async function loadFlow() {
     state.edges = seeded.edges;
     state.tags = seeded.tags;
   }
+
+  ensureStartNode();
+  pruneEdges();
 
   if (flowNameInput) {
     flowNameInput.value = state.flowName;
@@ -1143,6 +1175,13 @@ function renderNodes() {
       renderStartNode(node);
       return;
     }
+    if (node.type === "tag") {
+      const tagValue = String(node.body || node.action?.tag || "").trim();
+      node.type = "action";
+      node.title = "Acoes";
+      node.body = "";
+      node.action = { type: "tag", tag: tagValue };
+    }
     if (node.type === "condition") {
       renderConditionNode(node);
       return;
@@ -1633,6 +1672,10 @@ document.addEventListener("keyup", (event) => {
     if (flowCanvas) flowCanvas.classList.remove("pan-ready");
   }
 });
+
+
+
+
 
 
 

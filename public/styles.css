@@ -1066,13 +1066,15 @@ body.canva-page main.layout {
   width: 260px;
   background: #fff;
   border: 1px solid var(--wa-border);
-  border-radius: 12px;
+  border-radius: 16px;
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
   z-index: 2;
   will-change: transform;
 }
 
 .flow-node-message-link .flow-node-body {
+  border-bottom-left-radius: 16px;
+  border-bottom-right-radius: 16px;
   display: grid;
   gap: 8px;
 }
@@ -1158,6 +1160,8 @@ body.canva-page main.layout {
   background: #e9f7ef;
   border-bottom: 1px solid var(--wa-border);
   cursor: grab;
+  border-top-left-radius: 16px;
+  border-top-right-radius: 16px;
 }
 
 .flow-node-header input {
@@ -1492,6 +1496,8 @@ body.canva-page main.layout {
 }
 
 .flow-node-body {
+  border-bottom-left-radius: 16px;
+  border-bottom-right-radius: 16px;
   padding: 10px;
   display: grid;
   gap: 8px;
@@ -1799,6 +1805,7 @@ body.canva-page main.layout {
   height: calc(100vh - var(--topbar-height));
   position: relative;
 }
+
 
 
 
