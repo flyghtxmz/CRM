@@ -11,7 +11,7 @@
     <header class="topbar">
       <div>
         <div class="brand">Botzap CRM</div>
-        <div class="subtitle">Ferramentas <span class="version">v0.44</span></div>
+        <div class="subtitle">Ferramentas <span class="version">v0.45</span></div>
       </div>
       <div class="topbar-actions">
         <a class="ghost link" href="/app.html">Conversas</a>
@@ -79,6 +79,26 @@
         </section>
 
         <section class="card">
+          <h1>Teste de clique</h1>
+          <p class="hint">Simula um clique do EncurtaLink e grava a mensagem na conversa.</p>
+          <form id="track-form">
+            <label>
+              Numero (wa_id)
+              <input name="wa_id" placeholder="5511999999999" required />
+            </label>
+            <label>
+              Link curto (opcional)
+              <input name="short" placeholder="https://encurtalink.pages.dev/s/ABC123.jpg" />
+            </label>
+            <label>
+              Link final (opcional)
+              <input name="target" placeholder="https://seusite.com.br" />
+            </label>
+            <button type="submit">Simular clique</button>
+          </form>
+          <pre id="track-result" class="result" aria-live="polite"></pre>
+        </section>
+        <section class="card">
           <h1>Canva</h1>
           <p class="hint">Crie fluxos e tags visuais em um canva no estilo Manychat.</p>
           <a class="ghost link button-link" href="/flows.html">Abrir canva</a>
@@ -115,6 +135,7 @@
     <script src="/app.js"></script>
   </body>
 </html>
+
 
 
 

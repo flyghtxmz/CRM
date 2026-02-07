@@ -1,6 +1,8 @@
 const sendForm = document.getElementById("send-form");
 const sendResult = document.getElementById("send-result");
 const templateForm = document.getElementById("template-form");
+const trackForm = document.getElementById("track-form");
+const trackResult = document.getElementById("track-result");
 const templateResult = document.getElementById("template-result");
 const webhookButton = document.getElementById("webhook-test");
 const webhookResult = document.getElementById("webhook-result");
@@ -440,17 +442,6 @@ if (templateForm) {
   });
 }
 
-if (webhookButton && webhookResult) {
-  webhookButton.addEventListener("click", async () => {
-    webhookResult.textContent = "Testando...";
-    try {
-      const data = await postJson("/api/test-webhook", {});
-      webhookResult.textContent = pretty(data);
-    } catch (err) {
-      webhookResult.textContent = pretty(err);
-    }
-  });
-}
 
 if (phoneButton && phoneResult) {
   phoneButton.addEventListener("click", async () => {
@@ -477,3 +468,27 @@ document.addEventListener("visibilitychange", () => {
     refreshNow();
   }
 });
+
+if (trackForm && trackResult) {
+  trackForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    trackResult.textContent = "Enviando...";
+    const form = new FormData(trackForm);
+    const payload = {
+      wa_id: form.get("wa_id"),
+      short: form.get("short"),
+      target: form.get("target"),
+    };
+    try {
+      const data = await postJson("/api/track-test", payload);
+      trackResult.textContent = pretty(data);
+      refreshConversations();
+      if (payload.wa_id) {
+        loadThread(String(payload.wa_id));
+      }
+    } catch (err) {
+      trackResult.textContent = pretty(err);
+    }
+  });
+}
+
