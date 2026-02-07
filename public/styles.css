@@ -723,11 +723,13 @@ body.canva-page main.layout {
 
 .flow-canvas {
   position: relative;
-  background: #eef4f1;
   overflow: auto;
   scroll-behavior: smooth;
   overscroll-behavior: contain;
   cursor: default;
+  background-color: #eef4f1;
+  background-image: radial-gradient(circle at 1px 1px, rgba(35, 53, 44, 0.16) 1px, transparent 0);
+  background-size: 28px 28px;
 }
 
 .flow-canvas.pan-ready {
@@ -736,6 +738,15 @@ body.canva-page main.layout {
 
 .flow-canvas.panning {
   cursor: grabbing;
+}
+
+.flow-canvas::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.flow-canvas {
+  scrollbar-width: none;
 }
 
 .block-picker {
@@ -1013,14 +1024,12 @@ body.canva-page main.layout {
 
 .flow-surface {
   position: relative;
-  min-width: 2200px;
-  min-height: 1400px;
+  min-width: 12000px;
+  min-height: 9000px;
   padding: 48px;
   transform-origin: 0 0;
   will-change: transform;
-  background-color: #f4f7f5;
-  background-image: radial-gradient(circle at 1px 1px, rgba(35, 53, 44, 0.14) 1px, transparent 0);
-  background-size: 28px 28px;
+  background: transparent;
 }
 
 .flow-links {
@@ -1808,6 +1817,10 @@ body.canva-page main.layout {
   height: calc(100vh - var(--topbar-height));
   position: relative;
 }
+
+
+
+
 
 
 

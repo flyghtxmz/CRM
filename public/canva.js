@@ -18,6 +18,9 @@ const AUTO_SAVE_MS = 5000;
 const ZOOM_MIN = 0.6;
 const ZOOM_MAX = 1.6;
 const ZOOM_STEP = 0.1;
+const SURFACE_MIN_WIDTH = 12000;
+const SURFACE_MIN_HEIGHT = 9000;
+const SURFACE_PADDING = 1200;
 
 let state = {
   flowId: null,
@@ -312,6 +315,22 @@ function applyZoom() {
     zoomValue.textContent = `${Math.round(value * 100)}%`;
   }
   requestAnimationFrame(renderEdges);
+}
+
+function ensureSurfaceSize() {
+  if (!surface) return;
+  let maxX = 0;
+  let maxY = 0;
+  state.nodes.forEach((node) => {
+    const x = Number(node.x || 0);
+    const y = Number(node.y || 0);
+    if (x > maxX) maxX = x;
+    if (y > maxY) maxY = y;
+  });
+  const neededWidth = Math.max(SURFACE_MIN_WIDTH, maxX + SURFACE_PADDING);
+  const neededHeight = Math.max(SURFACE_MIN_HEIGHT, maxY + SURFACE_PADDING);
+  surface.style.minWidth = `${Math.ceil(neededWidth)}px`;
+  surface.style.minHeight = `${Math.ceil(neededHeight)}px`;
 }
 
 function renderTags() {
@@ -1316,6 +1335,8 @@ function enableDrag(element, node) {
   const onUp = () => {
     document.removeEventListener("mousemove", onMove);
     document.removeEventListener("mouseup", onUp);
+    ensureSurfaceSize();
+    renderEdges();
     scheduleAutoSave();
   };
   header.addEventListener("mousedown", (event) => {
@@ -1380,6 +1401,7 @@ function renderEdges() {
 }
 
 function renderAll() {
+  ensureSurfaceSize();
   renderTags();
   renderNodes();
   renderEdges();
@@ -1672,6 +1694,10 @@ document.addEventListener("keyup", (event) => {
     if (flowCanvas) flowCanvas.classList.remove("pan-ready");
   }
 });
+
+
+
+
 
 
 
