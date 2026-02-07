@@ -279,10 +279,10 @@ button:hover {
 
 .conversation-item {
   display: grid;
-  grid-template-columns: 44px 1fr;
-  gap: 10px;
+  grid-template-columns: 36px 1fr;
+  gap: 8px;
   align-items: center;
-  padding: 10px 12px;
+  padding: 6px 10px;
   border-radius: 10px;
   cursor: pointer;
   background: transparent;
@@ -296,23 +296,25 @@ button:hover {
 
 .conversation-body {
   display: grid;
-  gap: 4px;
+  gap: 2px;
 }
 
 .conversation-row {
   display: flex;
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
   font-weight: 700;
+  font-size: 13px;
+  line-height: 1.15;
 }
 
 .window-badge {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 2px 8px;
+  padding: 1px 6px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
   background: #e3f4ef;
   color: #0b5b4b;
@@ -325,7 +327,8 @@ button:hover {
 
 .conversation-preview {
   color: #596066;
-  font-size: 13px;
+  font-size: 12px;
+  line-height: 1.2;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -340,8 +343,8 @@ button:hover {
 }
 
 .avatar {
-  width: 40px;
-  height: 40px;
+  width: 34px;
+  height: 34px;
   border-radius: 50%;
   background: #cdd1d4;
   display: grid;
@@ -1805,6 +1808,12 @@ body.canva-page main.layout {
   height: calc(100vh - var(--topbar-height));
   position: relative;
 }
+
+
+
+
+
+
 
 
 
