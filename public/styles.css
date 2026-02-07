@@ -639,6 +639,7 @@ body.canva-page main.layout {
   display: grid;
   grid-template-columns: 1fr;
   height: calc(100vh - var(--topbar-height));
+  position: relative;
 }
 
 .flow-sidebar {
@@ -719,9 +720,10 @@ body.canva-page main.layout {
 
 .flow-canvas {
   position: relative;
-  background: #edf3ef;
+  background: #eef4f1;
   overflow: auto;
   scroll-behavior: smooth;
+  overscroll-behavior: contain;
   cursor: default;
 }
 
@@ -981,19 +983,18 @@ body.canva-page main.layout {
 }
 
 .flow-zoom {
-  position: sticky;
+  position: absolute;
   top: 12px;
   right: 16px;
-  margin-left: auto;
   display: inline-flex;
   align-items: center;
   gap: 6px;
   padding: 6px 10px;
-  background: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.92);
   border: 1px solid var(--wa-border);
   border-radius: 999px;
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
-  z-index: 3;
+  z-index: 6;
 }
 
 .flow-zoom button {
@@ -1009,11 +1010,14 @@ body.canva-page main.layout {
 
 .flow-surface {
   position: relative;
-  min-width: 1400px;
-  min-height: 900px;
-  padding: 24px;
+  min-width: 2200px;
+  min-height: 1400px;
+  padding: 48px;
   transform-origin: 0 0;
   will-change: transform;
+  background-color: #f4f7f5;
+  background-image: radial-gradient(circle at 1px 1px, rgba(35, 53, 44, 0.14) 1px, transparent 0);
+  background-size: 28px 28px;
 }
 
 .flow-links {
@@ -1790,38 +1794,13 @@ body.canva-page main.layout {
   }
 
   .flow-shell {
-    grid-template-columns: 1fr;
-  }
-
-  .flow-sidebar {
-    border-right: none;
-    border-bottom: 1px solid var(--wa-border);
-    grid-template-rows: auto auto auto;
-  }
-
-  .flow-canvas {
-    min-height: 70vh;
-  }
-
-  .flow-list-header {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .flow-list-item {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .flow-header-left {
-    width: 100%;
-  }
-
-  .flow-name-input {
-    width: 100%;
-    max-width: none;
-  }
+  display: grid;
+  grid-template-columns: 1fr;
+  height: calc(100vh - var(--topbar-height));
+  position: relative;
 }
+
+
 
 
 

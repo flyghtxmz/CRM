@@ -16,7 +16,7 @@
           <button id="export-flow" type="button" class="ghost">Exportar JSON</button>
           <button id="reset-flow" type="button" class="ghost">Limpar Canva</button>
         </div>
-        <span class="version">v0.47</span>
+        <span class="version">v0.48</span>
       </div>
       <div class="topbar-actions">
         <a class="ghost link" href="/app.html">Conversas</a>
@@ -31,13 +31,13 @@
 
     <main class="layout flow-layout">
       <section class="flow-shell">
+        <div class="flow-zoom">
+          <button type="button" id="zoom-out" class="ghost">-</button>
+          <span id="zoom-value">100%</span>
+          <button type="button" id="zoom-in" class="ghost">+</button>
+          <button type="button" id="zoom-reset" class="ghost">Reset</button>
+        </div>
         <section class="flow-canvas" id="flow-canvas">
-          <div class="flow-zoom">
-            <button type="button" id="zoom-out" class="ghost">-</button>
-            <span id="zoom-value">100%</span>
-            <button type="button" id="zoom-in" class="ghost">+</button>
-            <button type="button" id="zoom-reset" class="ghost">Reset</button>
-          </div>
           <div id="block-picker" class="block-picker" aria-hidden="true"></div>
           <div class="flow-surface" id="flow-surface">
             <svg id="flow-links" class="flow-links" aria-hidden="true"></svg>
@@ -49,6 +49,8 @@
     <script src="/canva.js"></script>
   </body>
 </html>
+
+
 
 
 

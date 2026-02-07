@@ -1,4 +1,4 @@
-﻿const logoutButton = document.getElementById("logout");
+const logoutButton = document.getElementById("logout");
 const saveButton = document.getElementById("save-flow");
 const exportButton = document.getElementById("export-flow");
 const resetButton = document.getElementById("reset-flow");
@@ -274,11 +274,12 @@ function applyZoom() {
   if (!surface) return;
   const value = clampZoom(state.zoom || 1);
   state.zoom = value;
-  surface.style.zoom = String(value);
+  surface.style.transform = `scale(${value})`;
+  surface.dataset.zoom = String(value);
   if (zoomValue) {
     zoomValue.textContent = `${Math.round(value * 100)}%`;
   }
-  renderEdges();
+  requestAnimationFrame(renderEdges);
 }
 
 function renderTags() {
@@ -1260,8 +1261,9 @@ function enableDrag(element, node) {
   let latestX = 0;
   let latestY = 0;
   const onMove = (event) => {
-    latestX = originX + (event.clientX - startX);
-    latestY = originY + (event.clientY - startY);
+    const zoom = state.zoom || 1;
+    latestX = originX + (event.clientX - startX) / zoom;
+    latestY = originY + (event.clientY - startY) / zoom;
     if (frame) return;
     frame = requestAnimationFrame(() => {
       frame = null;
@@ -1294,8 +1296,8 @@ function renderEdges() {
   if (!svg || !surface) return;
   svg.innerHTML = "";
   const zoom = state.zoom || 1;
-  const width = Math.max(surface.scrollWidth, surface.clientWidth) / zoom;
-  const height = Math.max(surface.scrollHeight, surface.clientHeight) / zoom;
+  const width = Math.max(surface.scrollWidth, surface.clientWidth);
+  const height = Math.max(surface.scrollHeight, surface.clientHeight);
   svg.setAttribute("width", String(width));
   svg.setAttribute("height", String(height));
   svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
@@ -1515,6 +1517,24 @@ if (flowCanvas) {
     const nodeY = rawY / zoom;
     openBlockPicker(rawX, rawY, nodeX, nodeY);
   });
+
+  flowCanvas.addEventListener("wheel", (event) => {
+    if (!event.ctrlKey && !event.metaKey) return;
+    event.preventDefault();
+    const rect = flowCanvas.getBoundingClientRect();
+    const prevZoom = state.zoom || 1;
+    const direction = event.deltaY < 0 ? 1 : -1;
+    const nextZoom = clampZoom(prevZoom + direction * ZOOM_STEP);
+    if (nextZoom === prevZoom) return;
+    const mouseX = event.clientX - rect.left + flowCanvas.scrollLeft;
+    const mouseY = event.clientY - rect.top + flowCanvas.scrollTop;
+    const scale = nextZoom / prevZoom;
+    flowCanvas.scrollLeft = mouseX * scale - (event.clientX - rect.left);
+    flowCanvas.scrollTop = mouseY * scale - (event.clientY - rect.top);
+    state.zoom = nextZoom;
+    applyZoom();
+    scheduleAutoSave();
+  }, { passive: false });
 }
 
 if (saveButton) {
@@ -1613,6 +1633,10 @@ document.addEventListener("keyup", (event) => {
     if (flowCanvas) flowCanvas.classList.remove("pan-ready");
   }
 });
+
+
+
+
 
 
 
