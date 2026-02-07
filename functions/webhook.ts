@@ -102,11 +102,7 @@ async function acquireContactFlowLock(
     expirationTtl: Math.max(2, ttlSeconds),
   });
 
-  const current = (await kv.get(lockKey, "json")) as ContactFlowLock | null;
-  if (!current || current.token !== token) {
-    return null;
-  }
-
+  // KV can be eventually consistent immediately after put; do not re-read here.
   return token;
 }
 
@@ -779,5 +775,6 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
   return new Response("OK", { status: 200 });
 };
+
 
 
