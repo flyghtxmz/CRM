@@ -41,6 +41,9 @@ type Contact = {
   last_type?: string;
   last_direction?: "in" | "out";
   last_status?: string;
+  last_click_at?: number;
+  last_click_id?: string;
+  last_click_url?: string;
 };
 
 function nowUnix() {
@@ -105,7 +108,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   }
 
   const link = String(body?.short || body?.target || "").trim();
-  const message = link ? `Cliente clicou no link: ${link}` : "Cliente clicou no link";
+  const match = link.match(/\/s\/([^/?#]+)/);
+  const clickId = match ? match[1] : "";
+  const message = `O ${waId} clicou no link`;
   const ts = nowUnix();
 
   const contact = (await kv.get(`contact:${waId}`, "json")) as Contact | null;
@@ -120,6 +125,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     last_timestamp: ts,
     last_type: "event",
     last_direction: "in",
+    last_click_at: ts,
+    last_click_id: clickId,
+    last_click_url: link,
   });
 
   await kv.put("contacts:index", JSON.stringify(contactList));
