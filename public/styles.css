@@ -1148,6 +1148,16 @@ body.canva-page main.layout {
   will-change: transform;
 }
 
+.flow-node.selected {
+  border-color: #25d366;
+  box-shadow: 0 0 0 2px rgba(37, 211, 102, 0.35), 0 12px 26px rgba(18, 140, 126, 0.18);
+}
+
+.flow-node.selected .flow-node-header {
+  background: #dcf8e8;
+  border-bottom-color: #b7dfca;
+}
+
 .flow-node-message-link .flow-node-body {
   border-bottom-left-radius: 16px;
   border-bottom-right-radius: 16px;
@@ -1254,6 +1264,30 @@ body.canva-page main.layout {
   color: #b8382a;
   font-weight: 700;
   cursor: pointer;
+}
+
+.flow-node-header .node-trash {
+  margin-top: 0;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #b8382a;
+}
+
+.flow-node-header .node-trash:hover {
+  background: rgba(184, 56, 42, 0.12);
+  color: #8f2318;
+}
+
+.flow-node-header .node-trash svg {
+  width: 15px;
+  height: 15px;
+  fill: currentColor;
+  pointer-events: none;
 }
 
 .flow-node-start {

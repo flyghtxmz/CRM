@@ -34,6 +34,7 @@ let state = {
 let linkFromId = null;
 let linkFromBranch = null;
 let autoSaveTimer = null;
+let selectedNodeId = null;
 
 const blockPresets = {
   start: { title: "Quando", body: "" },
@@ -347,6 +348,68 @@ function renderTags() {
   return;
 }
 
+function isNodeDeletable(node) {
+  return Boolean(node && node.type !== "start");
+}
+
+function syncSelectedNodes() {
+  if (!surface) return;
+  const selected = selectedNodeId;
+  surface.querySelectorAll(".flow-node").forEach((nodeEl) => {
+    const isSelected = Boolean(selected && nodeEl.dataset.nodeId === selected);
+    nodeEl.classList.toggle("selected", isSelected);
+  });
+}
+
+function setSelectedNode(nodeId) {
+  selectedNodeId = nodeId || null;
+  if (selectedNodeId && !state.nodes.some((node) => node.id === selectedNodeId)) {
+    selectedNodeId = null;
+  }
+  syncSelectedNodes();
+}
+
+function removeNodeById(nodeId) {
+  const target = state.nodes.find((node) => node.id === nodeId);
+  if (!isNodeDeletable(target)) return;
+  state.nodes = state.nodes.filter((node) => node.id !== nodeId);
+  state.edges = state.edges.filter((edge) => edge.from !== nodeId && edge.to !== nodeId);
+  if (linkFromId === nodeId) {
+    linkFromId = null;
+    linkFromBranch = null;
+    clearLinking();
+  }
+  if (selectedNodeId === nodeId) {
+    selectedNodeId = null;
+  }
+  renderAll();
+  scheduleAutoSave();
+}
+
+function createDeleteButton(node) {
+  if (!isNodeDeletable(node)) return null;
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "node-trash";
+  button.title = "Excluir bloco";
+  button.setAttribute("aria-label", "Excluir bloco");
+  button.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm1 7h2v8h-2v-8Zm4 0h2v8h-2v-8ZM7 10h2v8H7v-8Zm-1 11h12l1-13H5l1 13Z"/></svg>';
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    removeNodeById(node.id);
+  });
+  return button;
+}
+
+function attachNodeInteractions(element, node) {
+  element.addEventListener("mousedown", (event) => {
+    if (event.button !== 0) return;
+    if (event.target.closest(".condition-popup, .action-popup")) return;
+    setSelectedNode(node.id);
+  });
+}
+
 function renderStartNode(node) {
   if (!surface) return;
   const el = document.createElement("div");
@@ -415,6 +478,7 @@ function renderStartNode(node) {
   el.appendChild(footer);
   el.appendChild(connectorOut);
   surface.appendChild(el);
+  attachNodeInteractions(el, node);
   enableDrag(el, node);
 }
 
@@ -435,6 +499,8 @@ function renderConditionNode(node) {
   title.textContent = "Condicao";
   header.appendChild(icon);
   header.appendChild(title);
+  const deleteBtn = createDeleteButton(node);
+  if (deleteBtn) header.appendChild(deleteBtn);
 
   const body = document.createElement("div");
   body.className = "flow-node-body flow-condition-body";
@@ -710,6 +776,7 @@ function renderConditionNode(node) {
   el.appendChild(yesLabel);
   el.appendChild(noLabel);
   surface.appendChild(el);
+  attachNodeInteractions(el, node);
   enableDrag(el, node);
 }
 
@@ -730,6 +797,8 @@ function renderActionNode(node) {
   title.textContent = "Acoes";
   header.appendChild(icon);
   header.appendChild(title);
+  const deleteBtn = createDeleteButton(node);
+  if (deleteBtn) header.appendChild(deleteBtn);
 
   const body = document.createElement("div");
   body.className = "flow-node-body";
@@ -887,6 +956,7 @@ function renderActionNode(node) {
   el.appendChild(connectorIn);
   el.appendChild(connectorOut);
   surface.appendChild(el);
+  attachNodeInteractions(el, node);
   enableDrag(el, node);
 }
 
@@ -909,16 +979,8 @@ function renderLinkMessageNode(node) {
     scheduleAutoSave();
   });
   header.appendChild(title);
-  const deleteBtn = document.createElement("button");
-  deleteBtn.type = "button";
-  deleteBtn.textContent = "Excluir";
-  deleteBtn.addEventListener("click", () => {
-    state.nodes = state.nodes.filter((n) => n.id !== node.id);
-    state.edges = state.edges.filter((edge) => edge.from !== node.id && edge.to !== node.id);
-    renderAll();
-    scheduleAutoSave();
-  });
-  header.appendChild(deleteBtn);
+  const deleteBtn = createDeleteButton(node);
+  if (deleteBtn) header.appendChild(deleteBtn);
 
   const body = document.createElement("div");
   body.className = "flow-node-body";
@@ -1073,6 +1135,7 @@ function renderLinkMessageNode(node) {
   el.appendChild(connectorIn);
   el.appendChild(connectorOut);
   surface.appendChild(el);
+  attachNodeInteractions(el, node);
   enableDrag(el, node);
 }
 
@@ -1094,16 +1157,8 @@ function renderImageMessageNode(node) {
     scheduleAutoSave();
   });
   header.appendChild(title);
-  const deleteBtn = document.createElement("button");
-  deleteBtn.type = "button";
-  deleteBtn.textContent = "Excluir";
-  deleteBtn.addEventListener("click", () => {
-    state.nodes = state.nodes.filter((n) => n.id !== node.id);
-    state.edges = state.edges.filter((edge) => edge.from !== node.id && edge.to !== node.id);
-    renderAll();
-    scheduleAutoSave();
-  });
-  header.appendChild(deleteBtn);
+  const deleteBtn = createDeleteButton(node);
+  if (deleteBtn) header.appendChild(deleteBtn);
 
   const body = document.createElement("div");
   body.className = "flow-node-body";
@@ -1260,6 +1315,7 @@ function renderImageMessageNode(node) {
   el.appendChild(connectorIn);
   el.appendChild(connectorOut);
   surface.appendChild(el);
+  attachNodeInteractions(el, node);
   enableDrag(el, node);
 }
 function renderNodes() {
@@ -1311,16 +1367,8 @@ function renderNodes() {
       scheduleAutoSave();
     });
     header.appendChild(title);
-    const deleteBtn = document.createElement("button");
-    deleteBtn.type = "button";
-    deleteBtn.textContent = "Excluir";
-    deleteBtn.addEventListener("click", () => {
-      state.nodes = state.nodes.filter((n) => n.id !== node.id);
-      state.edges = state.edges.filter((edge) => edge.from !== node.id && edge.to !== node.id);
-      renderAll();
-      scheduleAutoSave();
-    });
-    header.appendChild(deleteBtn);
+    const deleteBtn = createDeleteButton(node);
+    if (deleteBtn) header.appendChild(deleteBtn);
 
     const body = document.createElement("div");
     body.className = "flow-node-body";
@@ -1479,9 +1527,13 @@ function renderEdges() {
 }
 
 function renderAll() {
+  if (selectedNodeId && !state.nodes.some((node) => node.id === selectedNodeId)) {
+    selectedNodeId = null;
+  }
   ensureSurfaceSize();
   renderTags();
   renderNodes();
+  syncSelectedNodes();
   renderEdges();
 }
 
@@ -1519,6 +1571,7 @@ function addBlockAt(type, x, y) {
     node.linkFormat = "default";
   }
   state.nodes.push(node);
+  setSelectedNode(node.id);
   renderAll();
   scheduleAutoSave();
 }
@@ -1735,6 +1788,15 @@ document.addEventListener("click", (event) => {
   closeBlockPicker();
 });
 
+document.addEventListener("mousedown", (event) => {
+  if (!flowCanvas) return;
+  if (event.button !== 0) return;
+  if (!flowCanvas.contains(event.target)) return;
+  if (event.target.closest(".flow-node")) return;
+  if (event.target.closest(".block-picker")) return;
+  setSelectedNode(null);
+});
+
 document.addEventListener("click", (event) => {
   const popup = event.target.closest(".condition-popup");
   if (popup) return;
@@ -1760,6 +1822,21 @@ ensureSession().then(async (ok) => {
 });
 
 document.addEventListener("keydown", (event) => {
+  const active = document.activeElement;
+  const isTyping = Boolean(
+    active &&
+      (active.tagName === "INPUT" ||
+        active.tagName === "TEXTAREA" ||
+        active.tagName === "SELECT" ||
+        active.isContentEditable),
+  );
+
+  if ((event.key === "Delete" || event.code === "Delete") && !isTyping && selectedNodeId) {
+    event.preventDefault();
+    removeNodeById(selectedNodeId);
+    return;
+  }
+
   if (event.code === "Space") {
     panReady = true;
     if (flowCanvas) flowCanvas.classList.add("pan-ready");
