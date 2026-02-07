@@ -72,6 +72,56 @@ type FlowLog = {
   notes?: string[];
 };
 
+type ContactFlowLock = {
+  token: string;
+  expires_at: number;
+};
+
+function makeLockToken() {
+  return `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+async function acquireContactFlowLock(
+  kv: KVNamespace,
+  waId: string,
+  ttlSeconds = 12,
+) {
+  const lockKey = `flow:lock:${waId}`;
+  const now = Date.now();
+  const existing = (await kv.get(lockKey, "json")) as ContactFlowLock | null;
+  if (existing && Number(existing.expires_at || 0) > now) {
+    return null;
+  }
+
+  const token = makeLockToken();
+  const next: ContactFlowLock = {
+    token,
+    expires_at: now + ttlSeconds * 1000,
+  };
+  await kv.put(lockKey, JSON.stringify(next), {
+    expirationTtl: Math.max(2, ttlSeconds),
+  });
+
+  const current = (await kv.get(lockKey, "json")) as ContactFlowLock | null;
+  if (!current || current.token !== token) {
+    return null;
+  }
+
+  return token;
+}
+
+async function releaseContactFlowLock(
+  kv: KVNamespace,
+  waId: string,
+  token: string,
+) {
+  const lockKey = `flow:lock:${waId}`;
+  const current = (await kv.get(lockKey, "json")) as ContactFlowLock | null;
+  if (current && current.token === token) {
+    await kv.delete(lockKey);
+  }
+}
+
 function messagePreview(message: any) {
   if (!message || !message.type) return "(mensagem)";
   if (message.type === "text") return message.text?.body || "(texto)";
@@ -590,27 +640,48 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
       let executedCount = 0;
       let logged = false;
-      for (const flow of flows) {
-        const tagsBefore = [...(contactRecord.tags || [])];
-        const notes: string[] = [];
-        const executed = await runFlow(env, flow, contactRecord, notes);
-        if (executed) executedCount += 1;
-        const tagsAfter = [...(contactRecord.tags || [])];
-        if (notes.length || tagsBefore.join(",") !== tagsAfter.join(",")) {
+      let flowLockBusy = false;
+      if (flows.length > 0) {
+        const lockToken = await acquireContactFlowLock(kv, waId, 12);
+        if (!lockToken) {
           logs.unshift({
             ts: Date.now(),
             wa_id: waId,
-            flow_id: flow.id,
-            flow_name: (flow as any)?.name,
+            flow_name: "(lock ocupado)",
             trigger: "Quando usuario enviar mensagem",
-            tags_before: tagsBefore,
-            tags_after: tagsAfter,
-            notes,
+            tags_before: [...(contactRecord.tags || [])],
+            tags_after: [...(contactRecord.tags || [])],
+            notes: ["lock:busy", `flows:${flows.length}`],
           });
           logged = true;
+          flowLockBusy = true;
+        } else {
+          try {
+            for (const flow of flows) {
+              const tagsBefore = [...(contactRecord.tags || [])];
+              const notes: string[] = [];
+              const executed = await runFlow(env, flow, contactRecord, notes);
+              if (executed) executedCount += 1;
+              const tagsAfter = [...(contactRecord.tags || [])];
+              if (notes.length || tagsBefore.join(",") !== tagsAfter.join(",")) {
+                logs.unshift({
+                  ts: Date.now(),
+                  wa_id: waId,
+                  flow_id: flow.id,
+                  flow_name: (flow as any)?.name,
+                  trigger: "Quando usuario enviar mensagem",
+                  tags_before: tagsBefore,
+                  tags_after: tagsAfter,
+                  notes,
+                });
+                logged = true;
+              }
+            }
+          } finally {
+            await releaseContactFlowLock(kv, waId, lockToken);
+          }
         }
       }
-
       if (!flows.length) {
         logs.unshift({
           ts: Date.now(),
@@ -634,6 +705,16 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
           tags_after: [...(contactRecord.tags || [])],
           notes: [`flows:${flows.length}`, `executados:${executedCount}`],
         });
+      }
+
+      if (flowLockBusy) {
+        const latestContact = (await kv.get(`contact:${waId}`, "json")) as Contact | null;
+        if (latestContact) {
+          contactRecord.tags = uniqueTags([
+            ...(latestContact.tags || []),
+            ...(contactRecord.tags || []),
+          ]);
+        }
       }
 
       contactRecord = upsertContactList(contactList, contactRecord);
@@ -698,4 +779,5 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
   return new Response("OK", { status: 200 });
 };
+
 
