@@ -21,6 +21,8 @@ type StoredMessage = {
   name?: string;
   direction?: "in" | "out";
   status?: string;
+  event_kind?: string;
+  event_state?: string;
 };
 
 type Contact = {
@@ -54,6 +56,8 @@ type FlowNode = {
   image?: string;
   linkMode?: string;
   linkFormat?: string;
+  delay_value?: number;
+  delay_unit?: string;
 };
 
 type Flow = {
@@ -75,6 +79,7 @@ type FlowLog = {
 };
 
 const FLOW_TRIGGER_DEBOUNCE_SEC = 10;
+const SECOND_MS = 1000;
 
 
 
@@ -185,6 +190,40 @@ function applyShortFormat(shortUrl: string, format: string) {
   const next = `${base}${suffix}`;
   return parts.length > 1 ? `${next}?${parts.slice(1).join("?")}` : next;
 }
+function parseDelayUnit(value: unknown) {
+  const unit = String(value || "").toLowerCase();
+  if (unit === "hours" || unit.startsWith("hora")) return "hours";
+  if (unit === "minutes" || unit.startsWith("min")) return "minutes";
+  return "seconds";
+}
+
+function parseDelayValue(value: unknown) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.max(0, Math.floor(parsed));
+}
+
+function delaySecondsFromNode(node: FlowNode) {
+  const unit = parseDelayUnit(node.delay_unit || "seconds");
+  const value = parseDelayValue(node.delay_value);
+  if (value <= 0) return 0;
+  if (unit === "hours") return value * 3600;
+  if (unit === "minutes") return value * 60;
+  return value;
+}
+
+function formatDelayHuman(value: number, unit: string) {
+  if (unit === "hours") return `${value} hora${value === 1 ? "" : "s"}`;
+  if (unit === "minutes") return `${value} minuto${value === 1 ? "" : "s"}`;
+  return `${value} segundo${value === 1 ? "" : "s"}`;
+}
+
+function sleepMs(ms: number) {
+  return new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 function upsertContactList(list: Contact[], update: Contact) {
   const existing = list.find((item) => item.wa_id === update.wa_id);
   const merged: Contact = {
@@ -353,6 +392,140 @@ async function finalizeOutgoingMessage(
   }
 }
 
+async function appendFlowEvent(
+  kv: KVNamespace,
+  contact: Contact,
+  text: string,
+  eventState: "active" | "done",
+) {
+  const ts = nowUnix();
+  const eventId = `event:delay:${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+
+  const convIndex = (await kv.get("conversations:index", "json")) as Conversation[] | null;
+  const conversations: Conversation[] = Array.isArray(convIndex) ? convIndex : [];
+  const conversation: Conversation = {
+    wa_id: contact.wa_id,
+    name: contact.name,
+    last_message: text,
+    last_timestamp: ts,
+    last_type: "event",
+    last_direction: "in",
+  };
+  await upsertConversation(kv, conversations, conversation);
+
+  const contactIndex = (await kv.get("contacts:index", "json")) as Contact[] | null;
+  const contactList: Contact[] = Array.isArray(contactIndex) ? contactIndex : [];
+  const updatedContact = upsertContactList(contactList, {
+    wa_id: contact.wa_id,
+    name: contact.name,
+    tags: contact.tags || [],
+    last_message: text,
+    last_timestamp: ts,
+    last_type: "event",
+    last_direction: "in",
+  });
+  await kv.put("contacts:index", JSON.stringify(contactList));
+  await kv.put(`contact:${contact.wa_id}`, JSON.stringify(updatedContact));
+  contact.last_message = updatedContact.last_message;
+  contact.last_timestamp = updatedContact.last_timestamp;
+  contact.last_type = updatedContact.last_type;
+  contact.last_direction = updatedContact.last_direction;
+  contact.tags = updatedContact.tags;
+
+  const threadKey = `thread:${contact.wa_id}`;
+  const thread = (await kv.get(threadKey, "json")) as StoredMessage[] | null;
+  const threadList: StoredMessage[] = Array.isArray(thread) ? thread : [];
+  threadList.push({
+    id: eventId,
+    from: contact.wa_id,
+    timestamp: String(ts),
+    type: "event",
+    text,
+    direction: "in",
+    event_kind: "delay",
+    event_state: eventState,
+  });
+  if (threadList.length > 50) {
+    threadList.splice(0, threadList.length - 50);
+  }
+  await kv.put(threadKey, JSON.stringify(threadList));
+
+  return eventId;
+}
+
+async function updateFlowEvent(
+  kv: KVNamespace,
+  contact: Contact,
+  eventId: string,
+  text: string,
+  eventState: "active" | "done",
+) {
+  const ts = nowUnix();
+  const threadKey = `thread:${contact.wa_id}`;
+  const thread = (await kv.get(threadKey, "json")) as StoredMessage[] | null;
+  const threadList: StoredMessage[] = Array.isArray(thread) ? thread : [];
+
+  let found = false;
+  for (let i = threadList.length - 1; i >= 0; i -= 1) {
+    if (threadList[i].id !== eventId) continue;
+    threadList[i].text = text;
+    threadList[i].event_kind = "delay";
+    threadList[i].event_state = eventState;
+    threadList[i].timestamp = String(ts);
+    found = true;
+    break;
+  }
+
+  if (!found) {
+    threadList.push({
+      id: eventId,
+      from: contact.wa_id,
+      timestamp: String(ts),
+      type: "event",
+      text,
+      direction: "in",
+      event_kind: "delay",
+      event_state: eventState,
+    });
+  }
+
+  if (threadList.length > 50) {
+    threadList.splice(0, threadList.length - 50);
+  }
+  await kv.put(threadKey, JSON.stringify(threadList));
+
+  const convIndex = (await kv.get("conversations:index", "json")) as Conversation[] | null;
+  const conversations: Conversation[] = Array.isArray(convIndex) ? convIndex : [];
+  const conversation: Conversation = {
+    wa_id: contact.wa_id,
+    name: contact.name,
+    last_message: text,
+    last_timestamp: ts,
+    last_type: "event",
+    last_direction: "in",
+  };
+  await upsertConversation(kv, conversations, conversation);
+
+  const contactIndex = (await kv.get("contacts:index", "json")) as Contact[] | null;
+  const contactList: Contact[] = Array.isArray(contactIndex) ? contactIndex : [];
+  const updatedContact = upsertContactList(contactList, {
+    wa_id: contact.wa_id,
+    name: contact.name,
+    tags: contact.tags || [],
+    last_message: text,
+    last_timestamp: ts,
+    last_type: "event",
+    last_direction: "in",
+  });
+  await kv.put("contacts:index", JSON.stringify(contactList));
+  await kv.put(`contact:${contact.wa_id}`, JSON.stringify(updatedContact));
+  contact.last_message = updatedContact.last_message;
+  contact.last_timestamp = updatedContact.last_timestamp;
+  contact.last_type = updatedContact.last_type;
+  contact.last_direction = updatedContact.last_direction;
+  contact.tags = updatedContact.tags;
+}
+
 async function runFlow(
   env: Env,
   flow: Flow,
@@ -393,6 +566,32 @@ async function runFlow(
         applyAction(node, contact);
         if (node.action?.type === "tag") {
           logNotes.push(`acao:tag:${node.action.tag || ""}`);
+        }
+      }
+      if (node.type === "delay") {
+        const delayUnit = parseDelayUnit(node.delay_unit || "seconds");
+        const delayValue = parseDelayValue(node.delay_value);
+        const delaySeconds = delaySecondsFromNode(node);
+        if (delaySeconds > 0) {
+          const humanDelay = formatDelayHuman(delayValue, delayUnit);
+          const activeText = `Delay Ativado: Tempo estimado da proxima acao ${humanDelay}`;
+          const kv = env.BOTZAP_KV;
+          let eventId = "";
+          if (kv) {
+            eventId = await appendFlowEvent(kv, contact, activeText, "active");
+          }
+          logNotes.push(`delay:${node.id}:start:${delaySeconds}s`);
+          await sleepMs(delaySeconds * SECOND_MS);
+          if (kv) {
+            if (eventId) {
+              await updateFlowEvent(kv, contact, eventId, "Delay Concluido", "done");
+            } else {
+              await appendFlowEvent(kv, contact, "Delay Concluido", "done");
+            }
+          }
+          logNotes.push(`delay:${node.id}:done`);
+        } else {
+          logNotes.push(`delay:${node.id}:ignorado`);
         }
       }
       if (node.type === "message" || node.type === "message_link" || node.type === "message_short" || node.type === "message_image") {

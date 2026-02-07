@@ -479,11 +479,31 @@ button:hover {
   box-shadow: 0 1px 0 rgba(0, 0, 0, 0.06);
 }
 
+.chat-bubble.event.event-delay {
+  background: #ffe2e2;
+  border-color: #f0b8b8;
+  color: #7f2222;
+}
+
+.chat-bubble.event.event-delay.event-done {
+  background: #ffe2e2;
+  border-color: #f0b8b8;
+  color: #7f2222;
+}
+
 .chat-bubble-meta.event-meta {
   justify-content: center;
   text-align: center;
   color: #7a6a2b;
   font-size: 10px;
+}
+
+.chat-bubble.event.event-delay .chat-bubble-meta.event-meta {
+  color: #9b5656;
+}
+
+.chat-bubble.event.event-delay.event-done .chat-bubble-meta.event-meta {
+  color: #9b5656;
 }
 
 .chat-bubble-meta {
@@ -1629,6 +1649,37 @@ body.canva-page main.layout {
 .flow-node-body textarea {
   resize: vertical;
   min-height: 64px;
+}
+
+.flow-node-delay {
+  width: 320px;
+}
+
+.flow-delay-body {
+  gap: 10px;
+}
+
+.flow-delay-row {
+  display: grid;
+  grid-template-columns: 110px 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.flow-delay-row input,
+.flow-delay-row select {
+  margin: 0;
+}
+
+.flow-delay-save {
+  margin-top: 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+}
+
+.flow-delay-summary {
+  font-size: 12px;
+  color: var(--muted);
 }
 
 .flow-tag-row {

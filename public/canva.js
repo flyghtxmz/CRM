@@ -202,6 +202,11 @@ async function loadFlow() {
       const normalized = rawRules.map(normalizeRule).filter(Boolean);
       node.rules = normalized.length ? [normalized[0]] : [];
     }
+    if (node.type === "delay") {
+      node.delay_value = normalizeDelayValue(node.delay_value || node.delayValue || node.value || 1);
+      node.delay_unit = normalizeDelayUnit(node.delay_unit || node.delayUnit || node.unit || "seconds");
+      node.body = `Aguardar ${formatDelaySummary(node.delay_value, node.delay_unit)}`;
+    }
     if ((node.type === "message_short" || node.type === "message_image") && typeof node.image !== "string") {
       node.image = "";
     }
@@ -310,6 +315,27 @@ function formatAction(action) {
     return `Adicionar tag: ${action.tag || ""}`.trim();
   }
   return action.label || "";
+}
+
+function normalizeDelayUnit(unit) {
+  const raw = String(unit || "").toLowerCase();
+  if (raw === "hours" || raw.startsWith("hora")) return "hours";
+  if (raw === "minutes" || raw.startsWith("min")) return "minutes";
+  return "seconds";
+}
+
+function normalizeDelayValue(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 1;
+  return Math.max(1, Math.floor(parsed));
+}
+
+function formatDelaySummary(value, unit) {
+  const amount = normalizeDelayValue(value);
+  const normalizedUnit = normalizeDelayUnit(unit);
+  if (normalizedUnit === "hours") return `${amount} hora${amount === 1 ? "" : "s"}`;
+  if (normalizedUnit === "minutes") return `${amount} minuto${amount === 1 ? "" : "s"}`;
+  return `${amount} segundo${amount === 1 ? "" : "s"}`;
 }
 
 function clampZoom(value) {
@@ -1139,6 +1165,118 @@ function renderLinkMessageNode(node) {
   enableDrag(el, node);
 }
 
+function renderDelayNode(node) {
+  if (!surface) return;
+  const el = document.createElement("div");
+  el.className = "flow-node flow-node-delay";
+  el.dataset.nodeId = node.id;
+  el.style.left = `${node.x}px`;
+  el.style.top = `${node.y}px`;
+
+  const header = document.createElement("div");
+  header.className = "flow-node-header";
+  const icon = document.createElement("span");
+  icon.className = "flow-node-icon";
+  icon.textContent = "D";
+  const title = document.createElement("span");
+  title.textContent = "Delay";
+  header.appendChild(icon);
+  header.appendChild(title);
+  const deleteBtn = createDeleteButton(node);
+  if (deleteBtn) header.appendChild(deleteBtn);
+
+  const body = document.createElement("div");
+  body.className = "flow-node-body flow-delay-body";
+  const row = document.createElement("div");
+  row.className = "flow-delay-row";
+
+  const input = document.createElement("input");
+  input.type = "number";
+  input.min = "1";
+  input.step = "1";
+  input.value = String(normalizeDelayValue(node.delay_value || 1));
+
+  const unit = document.createElement("select");
+  unit.innerHTML = `
+    <option value="seconds">Segundos</option>
+    <option value="minutes">Minutos</option>
+    <option value="hours">Horas</option>
+  `;
+  unit.value = normalizeDelayUnit(node.delay_unit || "seconds");
+
+  const save = document.createElement("button");
+  save.type = "button";
+  save.className = "flow-delay-save";
+  save.textContent = "Salvar";
+
+  const summary = document.createElement("div");
+  summary.className = "flow-delay-summary";
+
+  const updateSummary = () => {
+    summary.textContent = `Tempo atual: ${formatDelaySummary(input.value, unit.value)}`;
+  };
+
+  save.addEventListener("click", () => {
+    node.delay_value = normalizeDelayValue(input.value);
+    node.delay_unit = normalizeDelayUnit(unit.value);
+    node.body = `Aguardar ${formatDelaySummary(node.delay_value, node.delay_unit)}`;
+    input.value = String(node.delay_value);
+    unit.value = node.delay_unit;
+    updateSummary();
+    scheduleAutoSave();
+    saveFlow();
+  });
+
+  input.addEventListener("input", updateSummary);
+  unit.addEventListener("change", updateSummary);
+  updateSummary();
+
+  row.appendChild(input);
+  row.appendChild(unit);
+  row.appendChild(save);
+  body.appendChild(row);
+  body.appendChild(summary);
+
+  const connectorOut = document.createElement("div");
+  connectorOut.className = "connector out";
+  connectorOut.title = "Saida";
+  connectorOut.addEventListener("click", () => {
+    linkFromId = node.id;
+    linkFromBranch = "default";
+    clearLinking();
+    el.classList.add("linking");
+  });
+
+  const connectorIn = document.createElement("div");
+  connectorIn.className = "connector in";
+  connectorIn.title = "Entrada";
+  connectorIn.addEventListener("click", () => {
+    if (!linkFromId || linkFromId === node.id) return;
+    const branch = linkFromBranch || "default";
+    const exists = state.edges.some(
+      (edge) =>
+        edge.from === linkFromId &&
+        edge.to === node.id &&
+        (edge.branch || "default") === branch,
+    );
+    if (!exists) {
+      state.edges.push({ id: makeId("edge"), from: linkFromId, to: node.id, branch });
+      renderEdges();
+      scheduleAutoSave();
+    }
+    linkFromId = null;
+    resetLinking();
+  });
+
+  el.appendChild(header);
+  el.appendChild(body);
+  el.appendChild(connectorIn);
+  el.appendChild(connectorOut);
+  surface.appendChild(el);
+  attachNodeInteractions(el, node);
+  enableDrag(el, node);
+}
+
 function renderImageMessageNode(node) {
   if (!surface) return;
   const el = document.createElement("div");
@@ -1341,6 +1479,10 @@ function renderNodes() {
     }
     if (node.type === "action") {
       renderActionNode(node);
+      return;
+    }
+    if (node.type === "delay") {
+      renderDelayNode(node);
       return;
     }
     if (node.type === "message_link" || node.type === "message_short") {
@@ -1553,6 +1695,11 @@ function addBlockAt(type, x, y) {
   }
   if (type === "condition") {
     node.rules = [];
+  }
+  if (type === "delay") {
+    node.delay_value = 1;
+    node.delay_unit = "seconds";
+    node.body = "Aguardar 1 segundo";
   }
   if (type === "action") {
     node.action = null;

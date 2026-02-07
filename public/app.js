@@ -157,6 +157,12 @@ function renderThread(items) {
     const isEvent = item.type === "event";
     const direction = item.direction === "out" ? "outgoing" : "incoming";
     bubble.className = `chat-bubble ${isEvent ? "event" : direction}`;
+    if (isEvent) {
+      const eventKind = String(item.event_kind || "").trim().toLowerCase();
+      const eventState = String(item.event_state || "").trim().toLowerCase();
+      if (eventKind) bubble.classList.add(`event-${eventKind}`);
+      if (eventState) bubble.classList.add(`event-${eventState}`);
+    }
 
     const mediaUrl = String(item.media_url || "").trim();
     const hasImageMedia = item.type === "image" && Boolean(mediaUrl);
