@@ -113,7 +113,7 @@ function shortenerBase(env: Env) {
   return raw.replace(/\/+$/, "");
 }
 
-async function shortenUrl(env: Env, longUrl: string, imageUrl?: string) {
+async function shortenUrl(env: Env, longUrl: string, imageUrl?: string, cid?: string) {
   if (!longUrl) return null;
   try {
     const base = shortenerBase(env);
@@ -124,6 +124,9 @@ async function shortenUrl(env: Env, longUrl: string, imageUrl?: string) {
     const payload: Record<string, string> = { url: longUrl };
     if (imageUrl) {
       payload.image = imageUrl;
+    }
+    if (cid) {
+      payload.cid = cid;
     }
     const res = await fetch(`${base}/api/shorten`, {
       method: "POST",
@@ -287,7 +290,7 @@ async function runFlow(
         const linkMode = String(node.linkMode || "first").toLowerCase();
         const linkFormat = String(node.linkFormat || "default").toLowerCase();
         if ((node.type === "message_short" || node.type === "message_image") && url) {
-          const shortened = await shortenUrl(env, url, image);
+          const shortened = await shortenUrl(env, url, image, contact.wa_id);
           if (shortened) {
             finalUrl = applyShortFormat(shortened, linkFormat);
             logNotes.push(`short:${node.id}:ok`);
@@ -636,6 +639,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
   return new Response("OK", { status: 200 });
 };
+
 
 
 

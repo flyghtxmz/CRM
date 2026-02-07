@@ -10,6 +10,7 @@ export type Env = {
   BOTZAP_SESSION_TTL?: string;
   SHORTENER_URL?: string;
   SHORTENER_API_KEY?: string;
+  BOTZAP_TRACK_SECRET?: string;
 };
 
 export const corsHeaders = {
@@ -138,3 +139,4 @@ export async function getSession(request: Request, env: Env) {
 
   return { kv, token, data } as const;
 }
+
