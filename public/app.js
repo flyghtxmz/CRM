@@ -126,12 +126,13 @@ function renderThread(items) {
   chatEmpty.textContent = "";
   items.forEach((item) => {
     const bubble = document.createElement("div");
+    const isEvent = item.type === "event";
     const direction = item.direction === "out" ? "outgoing" : "incoming";
-    bubble.className = `chat-bubble ${direction}`;
+    bubble.className = `chat-bubble ${isEvent ? "event" : direction}`;
     bubble.textContent = item.text || "(mensagem)";
 
     const meta = document.createElement("div");
-    meta.className = "chat-bubble-meta";
+    meta.className = `chat-bubble-meta${isEvent ? " event-meta" : ""}`;
     const time = formatTime(item.timestamp);
 
     if (direction === "outgoing") {
@@ -491,4 +492,5 @@ if (trackForm && trackResult) {
     }
   });
 }
+
 

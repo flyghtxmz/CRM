@@ -432,6 +432,26 @@ button:hover {
   border-radius: 10px 10px 2px 10px;
 }
 
+.chat-bubble.event {
+  align-self: center;
+  margin: 8px auto;
+  background: #fff3b4;
+  border: 1px solid #f2d37a;
+  color: #5a4a15;
+  font-size: 12px;
+  text-align: center;
+  border-radius: 10px;
+  max-width: 80%;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.06);
+}
+
+.chat-bubble-meta.event-meta {
+  justify-content: center;
+  text-align: center;
+  color: #7a6a2b;
+  font-size: 10px;
+}
+
 .chat-bubble-meta {
   margin-top: 6px;
   color: #7a8087;
