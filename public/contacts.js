@@ -5,8 +5,33 @@ const searchInput = document.getElementById("contact-search");
 const refreshButton = document.getElementById("contact-refresh");
 
 let contacts = [];
-const autoRefreshIntervalMs = 10000;
+const autoRefreshBaseIntervalMs = 10000;
+const autoRefreshFastIntervalMs = 2000;
+const autoRefreshBurstDurationMs = 20000;
 let autoRefreshTimer = null;
+let burstUntil = 0;
+let lastContactsSignature = "";
+
+function startBurstRefresh(durationMs = autoRefreshBurstDurationMs) {
+  burstUntil = Math.max(burstUntil, Date.now() + durationMs);
+}
+
+function currentRefreshInterval() {
+  return Date.now() < burstUntil ? autoRefreshFastIntervalMs : autoRefreshBaseIntervalMs;
+}
+
+function buildContactsSignature(list) {
+  if (!Array.isArray(list) || !list.length) return "";
+  return list
+    .map((contact) => {
+      const wa = contact.wa_id || "";
+      const tags = Array.isArray(contact.tags) ? contact.tags.join(",") : "";
+      const ts = contact.last_timestamp || "";
+      const msg = contact.last_message || "";
+      return `${wa}|${tags}|${ts}|${msg}`;
+    })
+    .join("||");
+}
 
 async function ensureSession() {
   try {
@@ -127,6 +152,7 @@ function renderContacts(list) {
             contacts = contacts.map((item) =>
               item.wa_id === updated.wa_id ? updated : item,
             );
+            startBurstRefresh(10000);
             applySearch();
           }
         });
@@ -162,18 +188,30 @@ function applySearch() {
 }
 
 async function refreshNow() {
-  contacts = await fetchContacts();
+  const next = await fetchContacts();
+  const nextSignature = buildContactsSignature(next);
+  if (lastContactsSignature && nextSignature && nextSignature !== lastContactsSignature) {
+    startBurstRefresh(12000);
+  }
+  lastContactsSignature = nextSignature;
+  contacts = next;
   applySearch();
 }
 
-function startAutoRefresh() {
+function scheduleAutoRefresh() {
   if (autoRefreshTimer) {
-    clearInterval(autoRefreshTimer);
+    clearTimeout(autoRefreshTimer);
   }
-  autoRefreshTimer = setInterval(() => {
-    if (document.visibilityState !== "visible") return;
-    refreshNow();
-  }, autoRefreshIntervalMs);
+  autoRefreshTimer = setTimeout(async () => {
+    if (document.visibilityState === "visible") {
+      await refreshNow();
+    }
+    scheduleAutoRefresh();
+  }, currentRefreshInterval());
+}
+
+function startAutoRefresh() {
+  scheduleAutoRefresh();
 }
 
 if (logoutButton) {
@@ -196,19 +234,28 @@ if (searchInput) {
 }
 
 if (refreshButton) {
-  refreshButton.addEventListener("click", refreshNow);
+  refreshButton.addEventListener("click", async () => {
+    startBurstRefresh();
+    await refreshNow();
+  });
 }
 
 ensureSession().then(async (ok) => {
   if (ok) {
+    startBurstRefresh();
     await refreshNow();
     startAutoRefresh();
   }
 });
 
-window.addEventListener("focus", refreshNow);
-document.addEventListener("visibilitychange", () => {
+window.addEventListener("focus", async () => {
+  startBurstRefresh();
+  await refreshNow();
+});
+
+document.addEventListener("visibilitychange", async () => {
   if (document.visibilityState === "visible") {
-    refreshNow();
+    startBurstRefresh();
+    await refreshNow();
   }
 });

@@ -26,8 +26,34 @@ const pretty = (data) => JSON.stringify(data, null, 2);
 let currentConversationId = null;
 let currentConversationName = null;
 let allConversations = [];
-const autoRefreshIntervalMs = 10000;
+const autoRefreshBaseIntervalMs = 10000;
+const autoRefreshFastIntervalMs = 2000;
+const autoRefreshBurstDurationMs = 20000;
 let autoRefreshTimer = null;
+let autoRefreshBurstUntil = 0;
+let lastConversationSignature = "";
+function startBurstRefresh(durationMs = autoRefreshBurstDurationMs) {
+  autoRefreshBurstUntil = Math.max(autoRefreshBurstUntil, Date.now() + durationMs);
+}
+
+function currentRefreshInterval() {
+  return Date.now() < autoRefreshBurstUntil
+    ? autoRefreshFastIntervalMs
+    : autoRefreshBaseIntervalMs;
+}
+
+function buildConversationSignature(list) {
+  if (!Array.isArray(list) || !list.length) return "";
+  return list
+    .map((item) => {
+      const wa = item.wa_id || "";
+      const ts = item.last_timestamp || "";
+      const msg = item.last_message || "";
+      const status = item.last_status || "";
+      return `${wa}|${ts}|${msg}|${status}`;
+    })
+    .join("||");
+}
 
 async function ensureSession() {
   try {
@@ -330,7 +356,14 @@ async function refreshConversations() {
       return;
     }
 
-    allConversations = Array.isArray(data.data) ? data.data : [];
+    const nextAll = Array.isArray(data.data) ? data.data : [];
+    const nextSignature = buildConversationSignature(nextAll);
+    if (lastConversationSignature && nextSignature && nextSignature !== lastConversationSignature) {
+      startBurstRefresh(12000);
+    }
+    lastConversationSignature = nextSignature;
+
+    allConversations = nextAll;
     const list = applySearch(allConversations);
     renderConversations(list);
   } catch {
@@ -340,18 +373,24 @@ async function refreshConversations() {
 
 function startAutoRefresh() {
   if (autoRefreshTimer) {
-    clearInterval(autoRefreshTimer);
+    clearTimeout(autoRefreshTimer);
   }
-  autoRefreshTimer = setInterval(async () => {
-    if (document.visibilityState !== "visible") return;
-    await refreshConversations();
-    if (currentConversationId) {
-      await loadThread(currentConversationId);
+
+  const loop = async () => {
+    if (document.visibilityState === "visible") {
+      await refreshConversations();
+      if (currentConversationId) {
+        await loadThread(currentConversationId);
+      }
     }
-  }, autoRefreshIntervalMs);
+    autoRefreshTimer = setTimeout(loop, currentRefreshInterval());
+  };
+
+  autoRefreshTimer = setTimeout(loop, currentRefreshInterval());
 }
 
 function refreshNow() {
+  startBurstRefresh();
   refreshConversations();
   if (currentConversationId) {
     loadThread(currentConversationId);
@@ -527,4 +566,7 @@ if (trackForm && trackResult) {
     }
   });
 }
+
+
+
 
