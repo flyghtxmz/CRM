@@ -444,6 +444,7 @@ async function runFlow(
               await finalizeOutgoingMessage(kv, contact.wa_id, localId, "failed");
             }
           }
+        }
       }
       currentId = node.id;
       edge = findNextEdge(edges, currentId, "default");
@@ -553,6 +554,22 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         last_direction: "in",
       });
       contactsChanged = true;
+      const threadKey = `thread:${waId}`;
+      const thread = (await kv.get(threadKey, "json")) as StoredMessage[] | null;
+      const threadList: StoredMessage[] = Array.isArray(thread) ? thread : [];
+      threadList.push({
+        id: message.id,
+        from: waId,
+        timestamp: message.timestamp,
+        type: message.type,
+        text: messagePreview(message),
+        name,
+        direction: "in",
+      });
+      if (threadList.length > 50) {
+        threadList.splice(0, threadList.length - 50);
+      }
+      await kv.put(threadKey, JSON.stringify(threadList));
 
       let executedCount = 0;
       let logged = false;
@@ -605,22 +622,6 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       contactRecord = upsertContactList(contactList, contactRecord);
       await kv.put(`contact:${waId}`, JSON.stringify(contactRecord));
 
-      const threadKey = `thread:${waId}`;
-      const thread = (await kv.get(threadKey, "json")) as StoredMessage[] | null;
-      const threadList: StoredMessage[] = Array.isArray(thread) ? thread : [];
-      threadList.push({
-        id: message.id,
-        from: waId,
-        timestamp: message.timestamp,
-        type: message.type,
-        text: messagePreview(message),
-        name,
-        direction: "in",
-      });
-      if (threadList.length > 50) {
-        threadList.splice(0, threadList.length - 50);
-      }
-      await kv.put(threadKey, JSON.stringify(threadList));
     }
   }
 
@@ -680,6 +681,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
   return new Response("OK", { status: 200 });
 };
+
+
 
 
 
