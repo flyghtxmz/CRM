@@ -32,6 +32,8 @@ type StoredMessage = {
   status?: string;
 };
 
+type DeviceType = "mobile" | "desktop" | "unknown";
+
 type Contact = {
   wa_id: string;
   name?: string;
@@ -44,6 +46,7 @@ type Contact = {
   last_click_at?: number;
   last_click_id?: string;
   last_click_url?: string;
+  last_click_device?: DeviceType;
 };
 
 function nowUnix() {
@@ -61,6 +64,23 @@ function uniqueTags(tags: string[]) {
     output.push(normalized);
   });
   return output;
+}
+
+function inferDeviceType(rawUa: string): DeviceType {
+  const ua = String(rawUa || "").toLowerCase();
+  if (!ua) return "unknown";
+
+  const mobileHints = ["android", "iphone", "ipad", "ipod", "mobile", "windows phone", "opera mini"];
+  if (mobileHints.some((hint) => ua.includes(hint))) {
+    return "mobile";
+  }
+
+  const desktopHints = ["windows nt", "macintosh", "x11", "linux x86_64", "cros"];
+  if (desktopHints.some((hint) => ua.includes(hint))) {
+    return "desktop";
+  }
+
+  return "unknown";
 }
 
 function upsertContactList(list: Contact[], update: Contact) {
@@ -110,7 +130,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   const link = String(body?.short || body?.target || "").trim();
   const match = link.match(/\/s\/([^/?#]+)/);
   const clickId = match ? match[1] : "";
-  const message = `O ${waId} clicou no link`;
+  const ua = String(body?.ua || request.headers.get("user-agent") || "");
+  const deviceType = inferDeviceType(ua);
+  const message = `O ${waId} clicou no link (${deviceType})`;
   const ts = nowUnix();
 
   const contact = (await kv.get(`contact:${waId}`, "json")) as Contact | null;
@@ -128,6 +150,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     last_click_at: ts,
     last_click_id: clickId,
     last_click_url: link,
+    last_click_device: deviceType,
   });
 
   await kv.put("contacts:index", JSON.stringify(contactList));
@@ -167,5 +190,5 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   }
   await kv.put(threadKey, JSON.stringify(threadList));
 
-  return json({ ok: true });
+  return json({ ok: true, device_type: deviceType });
 };
