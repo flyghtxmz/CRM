@@ -1273,6 +1273,7 @@ body.canva-page main.layout {
   background: #d8fbf0;
   border: 2px solid #25d366;
   border-radius: 16px;
+  min-height: 220px;
 }
 
 .flow-condition-header {
@@ -1389,6 +1390,7 @@ body.canva-page main.layout {
   background: #d8fbf0;
   border: 2px solid #25d366;
   border-radius: 16px;
+  min-height: 220px;
 }
 
 .flow-condition-header {
@@ -1412,6 +1414,7 @@ body.canva-page main.layout {
 
 .flow-condition-body {
   gap: 10px;
+  padding: 12px 14px 82px;
 }
 
 .flow-condition-select {
@@ -1476,18 +1479,28 @@ body.canva-page main.layout {
 
 .flow-branch-label {
   position: absolute;
-  right: 16px;
+  right: 18px;
+  min-width: 34px;
+  text-align: center;
   font-size: 11px;
   font-weight: 700;
+  line-height: 1;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  z-index: 3;
 }
 
 .flow-branch-label.yes {
-  top: 38%;
+  top: auto;
+  bottom: 54px;
   color: #1b7b55;
 }
 
 .flow-branch-label.no {
-  top: 68%;
+  top: auto;
+  bottom: 20px;
   color: #c74343;
 }
 
@@ -1596,11 +1609,15 @@ body.canva-page main.layout {
 }
 
 .connector.out.yes {
-  top: 38%;
+  top: auto;
+  bottom: 54px;
+  transform: none;
 }
 
 .connector.out.no {
-  top: 68%;
+  top: auto;
+  bottom: 20px;
+  transform: none;
   background: #e05656;
   border-color: #c74343;
 }
