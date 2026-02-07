@@ -62,6 +62,7 @@ type FlowNode = {
 
 type Flow = {
   id: string;
+  name?: string;
   enabled?: boolean;
   data?: { nodes?: FlowNode[]; edges?: FlowEdge[] };
 };
@@ -78,8 +79,23 @@ type FlowLog = {
   notes?: string[];
 };
 
+type DelayJob = {
+  id: string;
+  flow_id: string;
+  flow_name?: string;
+  wa_id: string;
+  next_node_id: string;
+  node_id?: string;
+  due_at: number;
+  event_id?: string;
+  inbound_text?: string;
+  created_at: number;
+  retry_count?: number;
+};
+
 const FLOW_TRIGGER_DEBOUNCE_SEC = 10;
-const SECOND_MS = 1000;
+const FLOW_DELAY_INDEX_KEY = "flow-delay-jobs:index";
+const MAX_DELAY_JOBS_PER_TICK = 20;
 
 
 
@@ -218,10 +234,102 @@ function formatDelayHuman(value: number, unit: string) {
   return `${value} segundo${value === 1 ? "" : "s"}`;
 }
 
-function sleepMs(ms: number) {
-  return new Promise<void>((resolve) => {
-    setTimeout(resolve, ms);
+function newDelayJobId() {
+  return `delay:${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+}
+
+async function enqueueDelayJob(kv: KVNamespace, job: DelayJob) {
+  const current = (await kv.get(FLOW_DELAY_INDEX_KEY, "json")) as DelayJob[] | null;
+  const jobs: DelayJob[] = Array.isArray(current) ? current : [];
+  jobs.push(job);
+  jobs.sort((a, b) => Number(a.due_at || 0) - Number(b.due_at || 0));
+  if (jobs.length > 5000) {
+    jobs.splice(0, jobs.length - 5000);
+  }
+  await kv.put(FLOW_DELAY_INDEX_KEY, JSON.stringify(jobs));
+}
+
+async function takeDueDelayJobs(kv: KVNamespace, nowSec: number, limit: number) {
+  const current = (await kv.get(FLOW_DELAY_INDEX_KEY, "json")) as DelayJob[] | null;
+  const jobs: DelayJob[] = Array.isArray(current) ? current : [];
+  if (!jobs.length) return [] as DelayJob[];
+
+  const due: DelayJob[] = [];
+  const pending: DelayJob[] = [];
+
+  for (const job of jobs) {
+    if (Number(job?.due_at || 0) <= nowSec && due.length < limit) {
+      due.push(job);
+      continue;
+    }
+    pending.push(job);
+  }
+
+  if (due.length) {
+    await kv.put(FLOW_DELAY_INDEX_KEY, JSON.stringify(pending));
+  }
+
+  return due;
+}
+
+function appendFlowLog(logs: FlowLog[], log: FlowLog) {
+  logs.unshift(log);
+  if (logs.length > 200) logs.splice(200);
+}
+
+function applyContactRecord(base: Contact, updated: Contact) {
+  base.name = updated.name;
+  base.tags = updated.tags;
+  base.last_message = updated.last_message;
+  base.last_timestamp = updated.last_timestamp;
+  base.last_type = updated.last_type;
+  base.last_direction = updated.last_direction;
+  base.last_status = updated.last_status;
+  base.last_flow_trigger_at = updated.last_flow_trigger_at;
+  base.last_flow_trigger_msg_id = updated.last_flow_trigger_msg_id;
+}
+
+function upsertContactWithList(contactList: Contact[], contact: Contact) {
+  const updated = upsertContactList(contactList, {
+    wa_id: contact.wa_id,
+    name: contact.name,
+    tags: contact.tags || [],
+    last_message: contact.last_message,
+    last_timestamp: contact.last_timestamp,
+    last_type: contact.last_type,
+    last_direction: contact.last_direction,
+    last_status: contact.last_status,
+    last_flow_trigger_at: contact.last_flow_trigger_at,
+    last_flow_trigger_msg_id: contact.last_flow_trigger_msg_id,
   });
+  applyContactRecord(contact, updated);
+  return updated;
+}
+
+function upsertLogAndContacts(
+  contactList: Contact[],
+  logs: FlowLog[],
+  waId: string,
+  flow: Flow | null,
+  notes: string[],
+  tagsBefore: string[],
+  contact: Contact,
+  trigger = "Quando usuario enviar mensagem",
+) {
+  const tagsAfter = [...(contact.tags || [])];
+  if (notes.length || tagsBefore.join(",") !== tagsAfter.join(",")) {
+    appendFlowLog(logs, {
+      ts: Date.now(),
+      wa_id: waId,
+      flow_id: flow?.id,
+      flow_name: flow?.name,
+      trigger,
+      tags_before: tagsBefore,
+      tags_after: tagsAfter,
+      notes,
+    });
+  }
+  upsertContactWithList(contactList, contact);
 }
 
 function upsertContactList(list: Contact[], update: Contact) {
@@ -532,28 +640,40 @@ async function runFlow(
   contact: Contact,
   logNotes: string[],
   inboundText: string,
+  startNodeId?: string,
 ): Promise<boolean> {
-  if (!flow || flow.enabled === false) return;
+  if (!flow || flow.enabled === false) return false;
   const nodes = Array.isArray(flow.data?.nodes) ? flow.data?.nodes : [];
   const edges = Array.isArray(flow.data?.edges) ? flow.data?.edges : [];
   if (!nodes.length || !edges.length) return false;
 
   const nodesById = new Map(nodes.map((node) => [node.id, node]));
-  const startNodes = nodes.filter(
-    (node) =>
-      node.type === "start" && node.trigger === "Quando usuario enviar mensagem",
-  );
-  if (!startNodes.length) return false;
+  const entryNodeIds: string[] = [];
+
+  if (startNodeId && nodesById.has(startNodeId)) {
+    entryNodeIds.push(startNodeId);
+  } else {
+    const startNodes = nodes.filter(
+      (node) =>
+        node.type === "start" && node.trigger === "Quando usuario enviar mensagem",
+    );
+    if (!startNodes.length) return false;
+    entryNodeIds.push(...startNodes.map((node) => node.id));
+  }
 
   const maxSteps = 40;
-  for (const start of startNodes) {
-    let currentId = start.id;
+  for (const entryNodeId of entryNodeIds) {
+    let currentId = entryNodeId;
     let steps = 0;
-    let edge = findNextEdge(edges, currentId, "default");
+    let edge: FlowEdge | undefined = startNodeId
+      ? { from: "__resume__", to: entryNodeId, branch: "default" }
+      : findNextEdge(edges, currentId, "default");
+
     while (edge && steps < maxSteps) {
       const node = nodesById.get(edge.to);
       if (!node) break;
       steps += 1;
+
       if (node.type === "condition") {
         const ok = evaluateCondition(node, contact, inboundText);
         const branch = ok ? "yes" : "no";
@@ -562,38 +682,64 @@ async function runFlow(
         edge = findNextEdge(edges, currentId, branch);
         continue;
       }
+
       if (node.type === "action") {
         applyAction(node, contact);
         if (node.action?.type === "tag") {
           logNotes.push(`acao:tag:${node.action.tag || ""}`);
         }
       }
+
       if (node.type === "delay") {
         const delayUnit = parseDelayUnit(node.delay_unit || "seconds");
         const delayValue = parseDelayValue(node.delay_value);
         const delaySeconds = delaySecondsFromNode(node);
+
         if (delaySeconds > 0) {
+          const nextAfterDelay = findNextEdge(edges, node.id, "default");
+          if (!nextAfterDelay) {
+            logNotes.push(`delay:${node.id}:sem_proximo`);
+            currentId = node.id;
+            edge = undefined;
+            continue;
+          }
+
+          const kv = env.BOTZAP_KV;
+          if (!kv) {
+            logNotes.push(`delay:${node.id}:sem_kv`);
+            currentId = node.id;
+            edge = nextAfterDelay;
+            continue;
+          }
+
           const humanDelay = formatDelayHuman(delayValue, delayUnit);
           const activeText = `Delay Ativado: Tempo estimado da proxima acao ${humanDelay}`;
-          const kv = env.BOTZAP_KV;
-          let eventId = "";
-          if (kv) {
-            eventId = await appendFlowEvent(kv, contact, activeText, "active");
-          }
-          logNotes.push(`delay:${node.id}:start:${delaySeconds}s`);
-          await sleepMs(delaySeconds * SECOND_MS);
-          if (kv) {
-            if (eventId) {
-              await updateFlowEvent(kv, contact, eventId, "Delay Concluido", "done");
-            } else {
-              await appendFlowEvent(kv, contact, "Delay Concluido", "done");
-            }
-          }
-          logNotes.push(`delay:${node.id}:done`);
-        } else {
-          logNotes.push(`delay:${node.id}:ignorado`);
+          const eventId = await appendFlowEvent(kv, contact, activeText, "active");
+          const nowSec = nowUnix();
+
+          await enqueueDelayJob(kv, {
+            id: newDelayJobId(),
+            flow_id: flow.id,
+            flow_name: flow.name,
+            wa_id: contact.wa_id,
+            next_node_id: nextAfterDelay.to,
+            node_id: node.id,
+            due_at: nowSec + delaySeconds,
+            event_id: eventId,
+            inbound_text: inboundText,
+            created_at: nowSec,
+            retry_count: 0,
+          });
+
+          logNotes.push(`delay:${node.id}:queued:${delaySeconds}s`);
+          currentId = node.id;
+          edge = undefined;
+          continue;
         }
+
+        logNotes.push(`delay:${node.id}:ignorado`);
       }
+
       if (node.type === "message" || node.type === "message_link" || node.type === "message_short" || node.type === "message_image") {
         const body = String(node.body || "").trim();
         let url = "";
@@ -696,14 +842,138 @@ async function runFlow(
           }
         }
       }
+
       currentId = node.id;
       edge = findNextEdge(edges, currentId, "default");
     }
+
     logNotes.push(`steps:${steps}`);
   }
+
   return true;
 }
 
+export async function processDueDelayJobs(env: Env, limit = MAX_DELAY_JOBS_PER_TICK) {
+  const kv = env.BOTZAP_KV;
+  if (!kv) return { processed: 0, errors: 0 };
+
+  const safeLimit = Math.max(1, Math.min(MAX_DELAY_JOBS_PER_TICK, Number(limit) || MAX_DELAY_JOBS_PER_TICK));
+  const dueJobs = await takeDueDelayJobs(kv, nowUnix(), safeLimit);
+  if (!dueJobs.length) return { processed: 0, errors: 0 };
+
+  const flowIndex = (await kv.get("flows:index", "json")) as Flow[] | null;
+  const flows: Flow[] = Array.isArray(flowIndex) ? flowIndex : [];
+
+  const logIndex = (await kv.get("flow-logs:index", "json")) as FlowLog[] | null;
+  const logs: FlowLog[] = Array.isArray(logIndex) ? logIndex : [];
+
+  let processed = 0;
+  let errors = 0;
+
+  for (const job of dueJobs) {
+    try {
+      const flow = flows.find((item) => item.id === job.flow_id && item.enabled !== false);
+      if (!flow) {
+        const missingContact = (await kv.get(`contact:${job.wa_id}`, "json")) as Contact | null;
+        if (job.event_id) {
+          try {
+            await updateFlowEvent(
+              kv,
+              missingContact || { wa_id: job.wa_id, tags: [] },
+              job.event_id,
+              "Delay Concluido",
+              "done",
+            );
+          } catch {
+            // no-op
+          }
+        }
+        appendFlowLog(logs, {
+          ts: Date.now(),
+          wa_id: job.wa_id,
+          flow_id: job.flow_id,
+          flow_name: "(delay sem fluxo)",
+          trigger: "Delay concluido",
+          notes: [`job:${job.id}`, "flow:nao_encontrado"],
+        });
+        continue;
+      }
+
+      const storedContact = (await kv.get(`contact:${job.wa_id}`, "json")) as Contact | null;
+      const contact: Contact = storedContact
+        ? { ...storedContact, tags: Array.isArray(storedContact.tags) ? storedContact.tags : [] }
+        : { wa_id: job.wa_id, tags: [] };
+
+      if (job.event_id) {
+        await updateFlowEvent(kv, contact, job.event_id, "Delay Concluido", "done");
+      } else {
+        await appendFlowEvent(kv, contact, "Delay Concluido", "done");
+      }
+
+      const tagsBefore = [...(contact.tags || [])];
+      const notes: string[] = [`delay_job:${job.id}:resume`];
+      const executed = await runFlow(
+        env,
+        flow,
+        contact,
+        notes,
+        String(job.inbound_text || ""),
+        String(job.next_node_id || "").trim(),
+      );
+      if (!executed) {
+        notes.push("resume:sem_execucao");
+      }
+      const tagsAfter = [...(contact.tags || [])];
+
+      appendFlowLog(logs, {
+        ts: Date.now(),
+        wa_id: contact.wa_id,
+        flow_id: flow.id,
+        flow_name: flow.name,
+        trigger: "Delay concluido",
+        tags_before: tagsBefore,
+        tags_after: tagsAfter,
+        notes,
+      });
+
+      const contactIndex = (await kv.get("contacts:index", "json")) as Contact[] | null;
+      const contactList: Contact[] = Array.isArray(contactIndex) ? contactIndex : [];
+      const merged = upsertContactList(contactList, contact);
+      await kv.put("contacts:index", JSON.stringify(contactList));
+      await kv.put(`contact:${contact.wa_id}`, JSON.stringify(merged));
+
+      processed += 1;
+    } catch (err) {
+      errors += 1;
+      const messageText = err instanceof Error ? err.message : String(err || "erro");
+      const retryCount = Number(job.retry_count || 0) + 1;
+      if (retryCount <= 3) {
+        await enqueueDelayJob(kv, {
+          ...job,
+          retry_count: retryCount,
+          due_at: nowUnix() + 15,
+        });
+      }
+      appendFlowLog(logs, {
+        ts: Date.now(),
+        wa_id: job.wa_id,
+        flow_id: job.flow_id,
+        flow_name: "(erro delay)",
+        trigger: "Delay concluido",
+        notes: [
+          `job:${job.id}`,
+          `erro:${messageText.slice(0, 180)}`,
+          retryCount <= 3 ? `retry:${retryCount}` : "retry:max",
+        ],
+      });
+    }
+  }
+
+  if (logs.length > 200) logs.splice(200);
+  await kv.put("flow-logs:index", JSON.stringify(logs));
+
+  return { processed, errors };
+}
 async function upsertConversation(
   kv: KVNamespace,
   list: Conversation[],
@@ -755,6 +1025,12 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   const kv = env.BOTZAP_KV;
   if (!kv) {
     return new Response("OK", { status: 200 });
+  }
+
+  try {
+    await processDueDelayJobs(env);
+  } catch {
+    // keep webhook resilient even if delay processor fails
   }
 
   const contactsIndex = (await kv.get("contacts:index", "json")) as Contact[] | null;
