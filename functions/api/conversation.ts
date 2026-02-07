@@ -1,4 +1,4 @@
-﻿import { Env, getSession, json } from "./_utils";
+import { Env, getSession, json } from "./_utils";
 
 type StoredMessage = {
   id?: string;
@@ -6,8 +6,11 @@ type StoredMessage = {
   timestamp?: string;
   type?: string;
   text?: string;
+  media_url?: string;
+  caption?: string;
   name?: string;
   direction?: "in" | "out";
+  status?: string;
 };
 
 export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
@@ -27,3 +30,4 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
   return json({ ok: true, data });
 };
+

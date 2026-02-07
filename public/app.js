@@ -131,7 +131,41 @@ function renderThread(items) {
     const isEvent = item.type === "event";
     const direction = item.direction === "out" ? "outgoing" : "incoming";
     bubble.className = `chat-bubble ${isEvent ? "event" : direction}`;
-    bubble.textContent = item.text || "(mensagem)";
+
+    const mediaUrl = String(item.media_url || "").trim();
+    const hasImageMedia = item.type === "image" && Boolean(mediaUrl);
+
+    if (hasImageMedia) {
+      const mediaWrap = document.createElement("div");
+      mediaWrap.className = "chat-media";
+
+      const mediaLink = document.createElement("a");
+      mediaLink.className = "chat-media-link";
+      mediaLink.href = mediaUrl;
+      mediaLink.target = "_blank";
+      mediaLink.rel = "noopener noreferrer";
+
+      const img = document.createElement("img");
+      img.className = "chat-media-img";
+      img.src = mediaUrl;
+      img.alt = "Imagem";
+      mediaLink.appendChild(img);
+      mediaWrap.appendChild(mediaLink);
+      bubble.appendChild(mediaWrap);
+
+      const captionText = String(item.caption || item.text || "").trim();
+      if (captionText && captionText !== "[imagem]") {
+        const caption = document.createElement("div");
+        caption.className = "chat-media-caption";
+        caption.textContent = captionText;
+        bubble.appendChild(caption);
+      }
+    } else {
+      const text = document.createElement("div");
+      text.className = "chat-bubble-text";
+      text.textContent = item.text || "(mensagem)";
+      bubble.appendChild(text);
+    }
 
     const meta = document.createElement("div");
     meta.className = `chat-bubble-meta${isEvent ? " event-meta" : ""}`;
@@ -159,7 +193,6 @@ function renderThread(items) {
 
   chatHistory.scrollTop = chatHistory.scrollHeight;
 }
-
 async function loadThread(waId) {
   if (!waId) return;
   if (!chatHistory || !chatEmpty) return;
@@ -494,6 +527,4 @@ if (trackForm && trackResult) {
     }
   });
 }
-
-
 

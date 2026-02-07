@@ -423,6 +423,37 @@ button:hover {
   line-height: 1.4;
 }
 
+.chat-bubble-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chat-media {
+  margin-bottom: 4px;
+}
+
+.chat-media-link {
+  display: block;
+  max-width: 280px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #d8ddd8;
+}
+
+.chat-media-img {
+  display: block;
+  width: 100%;
+  max-width: 280px;
+  height: auto;
+}
+
+.chat-media-caption {
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin-top: 4px;
+}
+
+
 .chat-bubble.incoming {
   align-self: flex-start;
   margin-right: auto;
@@ -1817,25 +1848,4 @@ body.canva-page main.layout {
   height: calc(100vh - var(--topbar-height));
   position: relative;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 

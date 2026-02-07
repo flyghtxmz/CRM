@@ -23,6 +23,8 @@ type StoredMessage = {
   timestamp?: string;
   type?: string;
   text?: string;
+  media_url?: string;
+  caption?: string;
   name?: string;
   direction?: "in" | "out";
   status?: string;
@@ -181,3 +183,4 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
   return json({ ok: true, device_type: deviceType });
 };
+

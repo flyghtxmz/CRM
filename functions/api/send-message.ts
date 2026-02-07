@@ -1,4 +1,4 @@
-﻿import { apiVersion, callGraph, Env, getSession, json, options, readJson, requireEnv } from "./_utils";
+import { apiVersion, callGraph, Env, getSession, json, options, readJson, requireEnv } from "./_utils";
 
 type SendBody = {
   to?: string;
@@ -21,6 +21,8 @@ type StoredMessage = {
   timestamp?: string;
   type?: string;
   text?: string;
+  media_url?: string;
+  caption?: string;
   name?: string;
   direction?: "in" | "out";
   status?: string;
@@ -162,3 +164,4 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     return json({ ok: false, error: err }, 500);
   }
 };
+

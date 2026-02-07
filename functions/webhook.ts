@@ -16,6 +16,8 @@ type StoredMessage = {
   timestamp?: string;
   type?: string;
   text?: string;
+  media_url?: string;
+  caption?: string;
   name?: string;
   direction?: "in" | "out";
   status?: string;
@@ -73,7 +75,10 @@ type FlowLog = {
 function messagePreview(message: any) {
   if (!message || !message.type) return "(mensagem)";
   if (message.type === "text") return message.text?.body || "(texto)";
-  if (message.type === "image") return "[imagem]";
+  if (message.type === "image") {
+    const caption = String(message.image?.caption || "").trim();
+    return caption ? `[imagem] ${caption}` : "[imagem]";
+  }
   if (message.type === "audio") return "[audio]";
   if (message.type === "video") return "[video]";
   if (message.type === "document") return "[documento]";
@@ -244,6 +249,7 @@ async function appendOutgoingMessage(
   contact: Contact,
   text: string,
   type: string,
+  media?: { mediaUrl?: string; caption?: string },
 ) {
   const ts = nowUnix();
   const localId = makeLocalId();
@@ -269,6 +275,8 @@ async function appendOutgoingMessage(
     timestamp: String(ts),
     type,
     text,
+    media_url: media?.mediaUrl,
+    caption: media?.caption,
     direction: "out",
     status: "sending",
   });
@@ -391,7 +399,13 @@ async function runFlow(
             let localId: string | null = null;
             if (kv) {
               const previewText = caption || "[imagem]";
-              const local = await appendOutgoingMessage(kv, contact, previewText, "image");
+              const local = await appendOutgoingMessage(
+                kv,
+                contact,
+                previewText,
+                "image",
+                { mediaUrl: image, caption: caption || undefined },
+              );
               localId = local.localId;
             }
             try {
@@ -557,12 +571,15 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       const threadKey = `thread:${waId}`;
       const thread = (await kv.get(threadKey, "json")) as StoredMessage[] | null;
       const threadList: StoredMessage[] = Array.isArray(thread) ? thread : [];
+      const incomingCaption =
+        message.type === "image" ? String(message.image?.caption || "").trim() : "";
       threadList.push({
         id: message.id,
         from: waId,
         timestamp: message.timestamp,
         type: message.type,
-        text: messagePreview(message),
+        text: incomingCaption || messagePreview(message),
+        caption: incomingCaption || undefined,
         name,
         direction: "in",
       });
@@ -681,22 +698,4 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
   return new Response("OK", { status: 200 });
 };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
