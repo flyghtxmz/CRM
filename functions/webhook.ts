@@ -655,86 +655,105 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       }
       await kv.put(threadKey, JSON.stringify(threadList));
 
-            let executedCount = 0;
+                  let executedCount = 0;
       let logged = false;
       let flowLockBusy = false;
       let flowLockToken: string | null = null;
-      if (flows.length > 0) {
-        flowLockToken = await acquireContactFlowLockWithRetry(kv, waId, 12, 8, 120);
-        if (!flowLockToken) {
-          logs.unshift({
-            ts: Date.now(),
-            wa_id: waId,
-            flow_name: "(lock ocupado)",
-            trigger: "Quando usuario enviar mensagem",
-            tags_before: [...(contactRecord.tags || [])],
-            tags_after: [...(contactRecord.tags || [])],
-            notes: ["lock:busy", `flows:${flows.length}`],
-          });
-          logged = true;
-          flowLockBusy = true;
-        } else {
-          for (const flow of flows) {
-            const tagsBefore = [...(contactRecord.tags || [])];
-            const notes: string[] = [];
-            const executed = await runFlow(env, flow, contactRecord, notes);
-            if (executed) executedCount += 1;
-            const tagsAfter = [...(contactRecord.tags || [])];
-            if (notes.length || tagsBefore.join(",") !== tagsAfter.join(",")) {
-              logs.unshift({
-                ts: Date.now(),
-                wa_id: waId,
-                flow_id: flow.id,
-                flow_name: (flow as any)?.name,
-                trigger: "Quando usuario enviar mensagem",
-                tags_before: tagsBefore,
-                tags_after: tagsAfter,
-                notes,
-              });
-              logged = true;
+
+      try {
+        if (flows.length > 0) {
+          flowLockToken = await acquireContactFlowLockWithRetry(kv, waId, 12, 8, 120);
+          if (!flowLockToken) {
+            logs.unshift({
+              ts: Date.now(),
+              wa_id: waId,
+              flow_name: "(lock ocupado)",
+              trigger: "Quando usuario enviar mensagem",
+              tags_before: [...(contactRecord.tags || [])],
+              tags_after: [...(contactRecord.tags || [])],
+              notes: ["lock:busy", `flows:${flows.length}`],
+            });
+            logged = true;
+            flowLockBusy = true;
+          } else {
+            for (const flow of flows) {
+              const tagsBefore = [...(contactRecord.tags || [])];
+              const notes: string[] = [];
+              const executed = await runFlow(env, flow, contactRecord, notes);
+              if (executed) executedCount += 1;
+              const tagsAfter = [...(contactRecord.tags || [])];
+              if (notes.length || tagsBefore.join(",") !== tagsAfter.join(",")) {
+                logs.unshift({
+                  ts: Date.now(),
+                  wa_id: waId,
+                  flow_id: flow.id,
+                  flow_name: (flow as any)?.name,
+                  trigger: "Quando usuario enviar mensagem",
+                  tags_before: tagsBefore,
+                  tags_after: tagsAfter,
+                  notes,
+                });
+                logged = true;
+              }
             }
           }
         }
-      }
-      if (!flows.length) {
-        logs.unshift({
-          ts: Date.now(),
-          wa_id: waId,
-          flow_name: "(nenhum fluxo)",
-          trigger: "Quando usuario enviar mensagem",
-          tags_before: [...(contactRecord.tags || [])],
-          tags_after: [...(contactRecord.tags || [])],
-          notes: ["flows:0"],
-        });
-        logged = true;
-      }
 
-      if (!logged) {
-        logs.unshift({
-          ts: Date.now(),
-          wa_id: waId,
-          flow_name: "(sem acao)",
-          trigger: "Quando usuario enviar mensagem",
-          tags_before: [...(contactRecord.tags || [])],
-          tags_after: [...(contactRecord.tags || [])],
-          notes: [`flows:${flows.length}`, `executados:${executedCount}`],
-        });
-      }
-
-      if (flowLockBusy) {
-        const latestContact = (await kv.get(`contact:${waId}`, "json")) as Contact | null;
-        if (latestContact) {
-          contactRecord.tags = uniqueTags([
-            ...(latestContact.tags || []),
-            ...(contactRecord.tags || []),
-          ]);
+        if (!flows.length) {
+          logs.unshift({
+            ts: Date.now(),
+            wa_id: waId,
+            flow_name: "(nenhum fluxo)",
+            trigger: "Quando usuario enviar mensagem",
+            tags_before: [...(contactRecord.tags || [])],
+            tags_after: [...(contactRecord.tags || [])],
+            notes: ["flows:0"],
+          });
+          logged = true;
         }
-      }
 
-      contactRecord = upsertContactList(contactList, contactRecord);
-      await kv.put(`contact:${waId}`, JSON.stringify(contactRecord));
-      if (flowLockToken) {
-        await releaseContactFlowLock(kv, waId, flowLockToken);
+        if (!logged) {
+          logs.unshift({
+            ts: Date.now(),
+            wa_id: waId,
+            flow_name: "(sem acao)",
+            trigger: "Quando usuario enviar mensagem",
+            tags_before: [...(contactRecord.tags || [])],
+            tags_after: [...(contactRecord.tags || [])],
+            notes: [`flows:${flows.length}`, `executados:${executedCount}`],
+          });
+        }
+
+        if (flowLockBusy) {
+          const latestContact = (await kv.get(`contact:${waId}`, "json")) as Contact | null;
+          if (latestContact) {
+            contactRecord.tags = uniqueTags([
+              ...(latestContact.tags || []),
+              ...(contactRecord.tags || []),
+            ]);
+          }
+        }
+
+        contactRecord = upsertContactList(contactList, contactRecord);
+        await kv.put(`contact:${waId}`, JSON.stringify(contactRecord));
+      } catch (err) {
+        const messageText = err instanceof Error ? err.message : String(err || "erro");
+        logs.unshift({
+          ts: Date.now(),
+          wa_id: waId,
+          flow_name: "(erro fluxo)",
+          trigger: "Quando usuario enviar mensagem",
+          tags_before: [...(contactRecord.tags || [])],
+          tags_after: [...(contactRecord.tags || [])],
+          notes: [`erro:${messageText.slice(0, 180)}`],
+        });
+
+        contactRecord = upsertContactList(contactList, contactRecord);
+        await kv.put(`contact:${waId}`, JSON.stringify(contactRecord));
+      } finally {
+        if (flowLockToken) {
+          await releaseContactFlowLock(kv, waId, flowLockToken);
+        }
       }
 
     }
@@ -796,6 +815,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
   return new Response("OK", { status: 200 });
 };
+
 
 
 
