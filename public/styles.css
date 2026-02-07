@@ -466,6 +466,15 @@ button:hover {
   font-size: 12px;
 }
 
+.status-sending {
+  color: #7a8087;
+}
+
+.status-failed {
+  color: #b8382a;
+  font-weight: 700;
+}
+
 .status-sent {
   color: #7a8087;
 }
@@ -1813,6 +1822,7 @@ body.canva-page main.layout {
     max-width: none;
   }
 }
+
 
 
 

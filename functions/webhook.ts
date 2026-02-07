@@ -235,6 +235,80 @@ function nowUnix() {
   return Math.floor(Date.now() / 1000);
 }
 
+function makeLocalId() {
+  return `local:${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+}
+
+async function appendOutgoingMessage(
+  kv: KVNamespace,
+  contact: Contact,
+  text: string,
+  type: string,
+) {
+  const ts = nowUnix();
+  const localId = makeLocalId();
+  const convIndex = (await kv.get("conversations:index", "json")) as Conversation[] | null;
+  const list: Conversation[] = Array.isArray(convIndex) ? convIndex : [];
+  const conversation: Conversation = {
+    wa_id: contact.wa_id,
+    name: contact.name,
+    last_message: text,
+    last_timestamp: ts,
+    last_type: type,
+    last_direction: "out",
+    last_status: "sending",
+  };
+  await upsertConversation(kv, list, conversation);
+
+  const threadKey = `thread:${contact.wa_id}`;
+  const thread = (await kv.get(threadKey, "json")) as StoredMessage[] | null;
+  const threadList: StoredMessage[] = Array.isArray(thread) ? thread : [];
+  threadList.push({
+    id: localId,
+    from: "me",
+    timestamp: String(ts),
+    type,
+    text,
+    direction: "out",
+    status: "sending",
+  });
+  if (threadList.length > 50) {
+    threadList.splice(0, threadList.length - 50);
+  }
+  await kv.put(threadKey, JSON.stringify(threadList));
+
+  return { localId, ts };
+}
+
+async function finalizeOutgoingMessage(
+  kv: KVNamespace,
+  waId: string,
+  localId: string,
+  status: "sent" | "failed",
+  messageId?: string,
+) {
+  const threadKey = `thread:${waId}`;
+  const thread = (await kv.get(threadKey, "json")) as StoredMessage[] | null;
+  if (Array.isArray(thread)) {
+    for (let i = thread.length - 1; i >= 0; i -= 1) {
+      if (thread[i].id === localId) {
+        thread[i].status = status;
+        if (messageId) thread[i].id = messageId;
+        break;
+      }
+    }
+    await kv.put(threadKey, JSON.stringify(thread));
+  }
+
+  const convIndex = (await kv.get("conversations:index", "json")) as Conversation[] | null;
+  const list: Conversation[] = Array.isArray(convIndex) ? convIndex : [];
+  const convo = list.find((item) => item.wa_id === waId && item.last_direction === "out");
+  if (convo) {
+    convo.last_status = status;
+    await kv.put("conversations:index", JSON.stringify(list));
+  }
+}
+
 async function runFlow(
   env: Env,
   flow: Flow,
@@ -312,50 +386,40 @@ async function runFlow(
           if (!image) {
             logNotes.push(`msg:${node.id}:sem_imagem`);
           } else {
+            const caption = text || "";
+            const kv = env.BOTZAP_KV;
+            let localId: string | null = null;
+            if (kv) {
+              const previewText = caption || "[imagem]";
+              const local = await appendOutgoingMessage(kv, contact, previewText, "image");
+              localId = local.localId;
+            }
             try {
-              const caption = text || "";
               const data: any = await sendImageMessage(env, contact.wa_id, image, caption);
               logNotes.push(`msg:${node.id}:ok`);
-
-              const kv = env.BOTZAP_KV;
-              if (kv) {
-                const ts = await nowUnix();
-                const convIndex = (await kv.get("conversations:index", "json")) as Conversation[] | null;
-                const list: Conversation[] = Array.isArray(convIndex) ? convIndex : [];
-                const previewText = caption || "[imagem]";
-                const conversation: Conversation = {
-                  wa_id: contact.wa_id,
-                  name: contact.name,
-                  last_message: previewText,
-                  last_timestamp: ts,
-                  last_type: "image",
-                  last_direction: "out",
-                  last_status: "sent",
-                };
-                await upsertConversation(kv, list, conversation);
-
-                const threadKey = `thread:${contact.wa_id}`;
-                const thread = (await kv.get(threadKey, "json")) as StoredMessage[] | null;
-                const threadList: StoredMessage[] = Array.isArray(thread) ? thread : [];
-                threadList.push({
-                  id: data?.messages?.[0]?.id,
-                  from: "me",
-                  timestamp: String(ts),
-                  type: "image",
-                  text: previewText,
-                  direction: "out",
-                  status: "sent",
-                });
-                if (threadList.length > 50) {
-                  threadList.splice(0, threadList.length - 50);
-                }
-                await kv.put(threadKey, JSON.stringify(threadList));
+              if (kv && localId) {
+                await finalizeOutgoingMessage(
+                  kv,
+                  contact.wa_id,
+                  localId,
+                  "sent",
+                  data?.messages?.[0]?.id,
+                );
               }
             } catch {
               logNotes.push(`msg:${node.id}:falhou`);
+              if (kv && localId) {
+                await finalizeOutgoingMessage(kv, contact.wa_id, localId, "failed");
+              }
             }
           }
         } else if (text) {
+          const kv = env.BOTZAP_KV;
+          let localId: string | null = null;
+          if (kv) {
+            const local = await appendOutgoingMessage(kv, contact, text, "text");
+            localId = local.localId;
+          }
           try {
             const data: any = await sendTextMessage(
               env,
@@ -364,45 +428,22 @@ async function runFlow(
               Boolean(finalUrl),
             );
             logNotes.push(`msg:${node.id}:ok`);
-
-            const kv = env.BOTZAP_KV;
-            if (kv) {
-              const ts = await nowUnix();
-              const convIndex = (await kv.get("conversations:index", "json")) as Conversation[] | null;
-              const list: Conversation[] = Array.isArray(convIndex) ? convIndex : [];
-              const conversation: Conversation = {
-                wa_id: contact.wa_id,
-                name: contact.name,
-                last_message: text,
-                last_timestamp: ts,
-                last_type: "text",
-                last_direction: "out",
-                last_status: "sent",
-              };
-              await upsertConversation(kv, list, conversation);
-
-              const threadKey = `thread:${contact.wa_id}`;
-              const thread = (await kv.get(threadKey, "json")) as StoredMessage[] | null;
-              const threadList: StoredMessage[] = Array.isArray(thread) ? thread : [];
-              threadList.push({
-                id: data?.messages?.[0]?.id,
-                from: "me",
-                timestamp: String(ts),
-                type: "text",
-                text,
-                direction: "out",
-                status: "sent",
-              });
-              if (threadList.length > 50) {
-                threadList.splice(0, threadList.length - 50);
-              }
-              await kv.put(threadKey, JSON.stringify(threadList));
+            if (kv && localId) {
+              await finalizeOutgoingMessage(
+                kv,
+                contact.wa_id,
+                localId,
+                "sent",
+                data?.messages?.[0]?.id,
+              );
             }
           } catch {
             // ignore send errors (24h window, etc.)
             logNotes.push(`msg:${node.id}:falhou`);
+            if (kv && localId) {
+              await finalizeOutgoingMessage(kv, contact.wa_id, localId, "failed");
+            }
           }
-        }
       }
       currentId = node.id;
       edge = findNextEdge(edges, currentId, "default");
@@ -639,6 +680,11 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
   return new Response("OK", { status: 200 });
 };
+
+
+
+
+
 
 
 

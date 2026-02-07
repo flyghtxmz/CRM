@@ -78,6 +78,8 @@ function windowStatus(value) {
 
 function statusSymbol(status) {
   if (!status) return { text: "", cls: "" };
+  if (status === "sending") return { text: "...", cls: "status-sending" };
+  if (status === "failed") return { text: "!", cls: "status-failed" };
   if (status === "sent") return { text: "?", cls: "status-sent" };
   if (status === "delivered") return { text: "??", cls: "status-delivered" };
   if (status === "read") return { text: "??", cls: "status-read" };
@@ -492,5 +494,6 @@ if (trackForm && trackResult) {
     }
   });
 }
+
 
 
