@@ -548,3 +548,21 @@ export async function dbReleaseDelayJobClaim(env: Env, jobId: string) {
     throw err;
   }
 }
+
+export async function dbCleanupOldDelayJobClaims(env: Env, maxAgeSec = 7 * 24 * 3600) {
+  const database = db(env);
+  if (!database) return;
+
+  const safeMaxAgeSec = Math.max(60, toInt(maxAgeSec, 7 * 24 * 3600));
+  const cutoff = nowTs() - safeMaxAgeSec;
+
+  try {
+    await database
+      .prepare(`DELETE FROM delay_job_claims WHERE claimed_at < ?`)
+      .bind(cutoff)
+      .run();
+  } catch (err) {
+    if (isMissingTableError(err, "delay_job_claims")) return;
+    throw err;
+  }
+}

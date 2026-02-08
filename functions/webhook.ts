@@ -1,5 +1,5 @@
 import { apiVersion, callGraph, Env, json, requireEnv } from "./api/_utils";
-import { dbFinalizeOutgoingMessage, dbInsertFlowLogs, dbReleaseDelayJobClaim, dbTryClaimDelayJob, dbUpdateMessageStatusByMessageId, dbUpsertContact, dbUpsertConversation, dbUpsertMessage } from "./api/_d1";
+import { dbCleanupOldDelayJobClaims, dbFinalizeOutgoingMessage, dbInsertFlowLogs, dbReleaseDelayJobClaim, dbTryClaimDelayJob, dbUpdateMessageStatusByMessageId, dbUpsertContact, dbUpsertConversation, dbUpsertMessage } from "./api/_d1";
 
 type Conversation = {
   wa_id: string;
@@ -104,6 +104,9 @@ const CONVERSATION_CACHE_LIMIT = 60;
 const FLOW_LOG_CACHE_LIMIT = 120;
 const FLOW_LOG_MERGE_WINDOW_MS = 15000;
 const DELAY_JOB_FALLBACK_CLAIM_TTL_SEC = 6 * 3600;
+const DELAY_JOB_CLAIM_MAX_AGE_SEC = 7 * 24 * 3600;
+const DELAY_JOB_CLEANUP_INTERVAL_SEC = 3600;
+const DELAY_JOB_CLEANUP_LAST_KEY = "flow-delay-claims:last-cleanup";
 
 
 
@@ -282,6 +285,25 @@ async function releaseDelayJobClaim(env: Env, kv: KVNamespace, jobId: string) {
   await kv.delete(key);
 }
 
+
+async function maybeCleanupDelayClaims(env: Env, kv: KVNamespace) {
+  const now = nowUnix();
+  const lastRaw = await kv.get(DELAY_JOB_CLEANUP_LAST_KEY);
+  const lastRun = toNumber(lastRaw);
+  if (lastRun > 0 && now - lastRun < DELAY_JOB_CLEANUP_INTERVAL_SEC) {
+    return;
+  }
+
+  await kv.put(DELAY_JOB_CLEANUP_LAST_KEY, String(now), {
+    expirationTtl: DELAY_JOB_CLAIM_MAX_AGE_SEC,
+  });
+
+  try {
+    await dbCleanupOldDelayJobClaims(env, DELAY_JOB_CLAIM_MAX_AGE_SEC);
+  } catch {
+    // keep cleanup best-effort
+  }
+}
 async function takeDueDelayJobs(kv: KVNamespace, nowSec: number, limit: number) {
   const current = (await kv.get(FLOW_DELAY_INDEX_KEY, "json")) as DelayJob[] | null;
   const jobs: DelayJob[] = Array.isArray(current) ? current : [];
@@ -1008,6 +1030,8 @@ export async function processDueDelayJobs(env: Env, limit = MAX_DELAY_JOBS_PER_T
   const kv = env.BOTZAP_KV;
   if (!kv) return { processed: 0, errors: 0 };
 
+  await maybeCleanupDelayClaims(env, kv);
+
   const safeLimit = Math.max(1, Math.min(MAX_DELAY_JOBS_PER_TICK, Number(limit) || MAX_DELAY_JOBS_PER_TICK));
   const dueJobs = await takeDueDelayJobs(kv, nowUnix(), safeLimit);
   if (!dueJobs.length) return { processed: 0, errors: 0 };
@@ -1486,4 +1510,6 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
   return new Response("OK", { status: 200 });
 };
+
+
 
