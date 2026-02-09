@@ -774,10 +774,10 @@ body.canva-page main.layout {
 
 .flow-canvas {
   position: relative;
-  overflow: auto;
-  scroll-behavior: smooth;
-  overscroll-behavior: contain;
+  overflow: hidden;
+  overscroll-behavior: none;
   cursor: default;
+  touch-action: none;
   background-color: #eef4f1;
   background-image: radial-gradient(circle at 1px 1px, rgba(35, 53, 44, 0.16) 1px, transparent 0);
   background-size: 28px 28px;
@@ -1106,11 +1106,79 @@ body.canva-page main.layout {
   font-weight: 700;
 }
 
+.flow-minimap {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  width: 260px;
+  padding: 8px;
+  border: 1px solid var(--wa-border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.16);
+  z-index: 6;
+  user-select: none;
+}
+
+.flow-minimap-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.flow-minimap-body {
+  position: relative;
+  width: 100%;
+  height: 148px;
+  border: 1px solid #d9e3dd;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #f8fbf9 0%, #edf3ef 100%);
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.flow-minimap-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.flow-minimap-svg .minimap-node {
+  fill: rgba(32, 112, 72, 0.4);
+  stroke: rgba(13, 83, 51, 0.65);
+  stroke-width: 0.8;
+}
+
+.flow-minimap-svg .minimap-node.start {
+  fill: rgba(37, 211, 102, 0.45);
+}
+
+.flow-minimap-svg .minimap-node.active {
+  fill: rgba(37, 211, 102, 0.78);
+  stroke: rgba(8, 85, 49, 0.9);
+  stroke-width: 1.2;
+}
+
+.flow-minimap-viewport {
+  position: absolute;
+  border: 2px solid #0e7f4f;
+  background: rgba(37, 211, 102, 0.12);
+  border-radius: 6px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.85) inset;
+  cursor: grab;
+}
+
+.flow-minimap-viewport:active {
+  cursor: grabbing;
+}
+
 .flow-surface {
   position: relative;
-  min-width: 12000px;
-  min-height: 9000px;
-  padding: 48px;
+  min-width: 48000px;
+  min-height: 48000px;
+  padding: 0;
   transform-origin: 0 0;
   will-change: transform;
   background: transparent;
@@ -1118,7 +1186,8 @@ body.canva-page main.layout {
 
 .flow-links {
   position: absolute;
-  inset: 0;
+  top: 0;
+  left: 0;
   z-index: 1;
   overflow: visible;
 }
@@ -1983,4 +2052,3 @@ body.canva-page main.layout {
   height: calc(100vh - var(--topbar-height));
   position: relative;
 }
-

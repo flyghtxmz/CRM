@@ -16,7 +16,7 @@
           <button id="export-flow" type="button" class="ghost">Exportar JSON</button>
           <button id="reset-flow" type="button" class="ghost">Limpar Canva</button>
         </div>
-        <span class="version">v0.70</span>
+        <span class="version">v0.71</span>
       </div>
       <div class="topbar-actions">
         <a class="ghost link" href="/app.html">Conversas</a>
@@ -42,6 +42,13 @@
           <div class="flow-surface" id="flow-surface">
             <svg id="flow-links" class="flow-links" aria-hidden="true"></svg>
           </div>
+          <aside class="flow-minimap" id="flow-minimap" aria-label="Mini mapa">
+            <div class="flow-minimap-title">Mini mapa</div>
+            <div class="flow-minimap-body" id="flow-minimap-body">
+              <svg id="flow-minimap-svg" class="flow-minimap-svg" aria-hidden="true"></svg>
+              <div id="flow-minimap-viewport" class="flow-minimap-viewport"></div>
+            </div>
+          </aside>
         </section>
       </section>
     </main>
@@ -49,6 +56,7 @@
     <script src="/canva.js"></script>
   </body>
 </html>
+
 
 
 

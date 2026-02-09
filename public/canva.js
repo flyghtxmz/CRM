@@ -11,21 +11,31 @@ const zoomOutButton = document.getElementById("zoom-out");
 const zoomResetButton = document.getElementById("zoom-reset");
 const zoomValue = document.getElementById("zoom-value");
 const blockPicker = document.getElementById("block-picker");
-const PAN_IGNORE_SELECTOR = ".flow-node, .flow-zoom, .block-picker";
+const minimap = document.getElementById("flow-minimap");
+const minimapBody = document.getElementById("flow-minimap-body");
+const minimapSvg = document.getElementById("flow-minimap-svg");
+const minimapViewport = document.getElementById("flow-minimap-viewport");
+const PAN_IGNORE_SELECTOR = ".flow-node, .flow-zoom, .block-picker, .flow-minimap, .condition-popup, .action-popup";
 let panReady = false;
+let minimapModel = null;
+let minimapDrag = null;
 
 const AUTO_SAVE_MS = 5000;
 const ZOOM_MIN = 0.6;
 const ZOOM_MAX = 1.6;
 const ZOOM_STEP = 0.1;
-const SURFACE_MIN_WIDTH = 12000;
-const SURFACE_MIN_HEIGHT = 9000;
-const SURFACE_PADDING = 1200;
+const SURFACE_WORLD_LIMIT = 24000;
+const SURFACE_MIN_WIDTH = SURFACE_WORLD_LIMIT * 2;
+const SURFACE_MIN_HEIGHT = SURFACE_WORLD_LIMIT * 2;
+const SURFACE_PADDING = 2000;
+const MINIMAP_NODE_PADDING = 360;
 
 let state = {
   flowId: null,
   flowName: "",
   zoom: 1,
+  cameraX: 80,
+  cameraY: 80,
   nodes: [],
   edges: [],
   tags: [],
@@ -181,6 +191,8 @@ async function loadFlow() {
     flowId: flow.id,
     flowName: flow.name || "Fluxo sem nome",
     zoom: typeof data.zoom === "number" ? data.zoom : 1,
+    cameraX: Number.isFinite(Number(data.cameraX)) ? Number(data.cameraX) : 80,
+    cameraY: Number.isFinite(Number(data.cameraY)) ? Number(data.cameraY) : 80,
     nodes: Array.isArray(data.nodes) ? data.nodes : [],
     edges: Array.isArray(data.edges) ? data.edges : [],
     tags: Array.isArray(data.tags) ? data.tags : [],
@@ -257,6 +269,8 @@ async function saveFlow() {
       edges: state.edges,
       tags: state.tags,
       zoom: state.zoom,
+      cameraX: state.cameraX,
+      cameraY: state.cameraY,
     },
   };
   const saved = await saveFlowToApi(payload);
@@ -343,35 +357,251 @@ function clampZoom(value) {
 }
 
 function applyZoom() {
-  if (!surface) return;
+  if (!surface || !flowCanvas) return;
   const value = clampZoom(state.zoom || 1);
   state.zoom = value;
-  surface.style.transform = `scale(${value})`;
+  const cameraX = Number(state.cameraX || 0);
+  const cameraY = Number(state.cameraY || 0);
+  surface.style.transform = `translate(${cameraX}px, ${cameraY}px) scale(${value})`;
   surface.dataset.zoom = String(value);
+
+  const gridSize = Math.max(12, Math.round(28 * value));
+  flowCanvas.style.backgroundSize = `${gridSize}px ${gridSize}px`;
+  flowCanvas.style.backgroundPosition = `${cameraX}px ${cameraY}px`;
+
   if (zoomValue) {
     zoomValue.textContent = `${Math.round(value * 100)}%`;
   }
-  requestAnimationFrame(renderEdges);
+  requestAnimationFrame(() => {
+    renderEdges();
+    renderMinimap();
+  });
 }
 
 function ensureSurfaceSize() {
   if (!surface) return;
   let maxX = 0;
   let maxY = 0;
+  let minX = 0;
+  let minY = 0;
   state.nodes.forEach((node) => {
     const x = Number(node.x || 0);
     const y = Number(node.y || 0);
     if (x > maxX) maxX = x;
     if (y > maxY) maxY = y;
+    if (x < minX) minX = x;
+    if (y < minY) minY = y;
   });
-  const neededWidth = Math.max(SURFACE_MIN_WIDTH, maxX + SURFACE_PADDING);
-  const neededHeight = Math.max(SURFACE_MIN_HEIGHT, maxY + SURFACE_PADDING);
+  const neededWidth = Math.max(
+    SURFACE_MIN_WIDTH,
+    maxX + SURFACE_PADDING,
+    Math.abs(minX) + SURFACE_PADDING,
+  );
+  const neededHeight = Math.max(
+    SURFACE_MIN_HEIGHT,
+    maxY + SURFACE_PADDING,
+    Math.abs(minY) + SURFACE_PADDING,
+  );
   surface.style.minWidth = `${Math.ceil(neededWidth)}px`;
   surface.style.minHeight = `${Math.ceil(neededHeight)}px`;
 }
 
 function renderTags() {
   return;
+}
+
+function nodeSize(node) {
+  const type = String(node?.type || "");
+  if (type === "start") return { width: 320, height: 210 };
+  if (type === "condition") return { width: 300, height: 230 };
+  if (type === "action") return { width: 300, height: 220 };
+  if (type === "delay") return { width: 320, height: 190 };
+  if (type === "message_image") return { width: 300, height: 360 };
+  if (type === "message_short" || type === "message_link") return { width: 300, height: 300 };
+  return { width: 260, height: 220 };
+}
+
+function getViewportWorldRect() {
+  const zoom = state.zoom || 1;
+  const width = flowCanvas ? flowCanvas.clientWidth : 1;
+  const height = flowCanvas ? flowCanvas.clientHeight : 1;
+  return {
+    x: (-Number(state.cameraX || 0)) / zoom,
+    y: (-Number(state.cameraY || 0)) / zoom,
+    width: width / zoom,
+    height: height / zoom,
+  };
+}
+
+function buildMinimapModel() {
+  if (!minimapBody) return null;
+  const rect = minimapBody.getBoundingClientRect();
+  const mapWidth = Math.max(120, Math.floor(rect.width));
+  const mapHeight = Math.max(90, Math.floor(rect.height));
+
+  const viewport = getViewportWorldRect();
+  let minX = viewport.x;
+  let minY = viewport.y;
+  let maxX = viewport.x + viewport.width;
+  let maxY = viewport.y + viewport.height;
+
+  state.nodes.forEach((node) => {
+    const size = nodeSize(node);
+    const x = Number(node.x || 0);
+    const y = Number(node.y || 0);
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x + size.width);
+    maxY = Math.max(maxY, y + size.height);
+  });
+
+  minX -= MINIMAP_NODE_PADDING;
+  minY -= MINIMAP_NODE_PADDING;
+  maxX += MINIMAP_NODE_PADDING;
+  maxY += MINIMAP_NODE_PADDING;
+
+  const worldWidth = Math.max(600, maxX - minX);
+  const worldHeight = Math.max(500, maxY - minY);
+  const scale = Math.min((mapWidth - 8) / worldWidth, (mapHeight - 8) / worldHeight);
+  const offsetX = (mapWidth - worldWidth * scale) / 2;
+  const offsetY = (mapHeight - worldHeight * scale) / 2;
+
+  return {
+    mapWidth,
+    mapHeight,
+    minX,
+    minY,
+    worldWidth,
+    worldHeight,
+    scale,
+    offsetX,
+    offsetY,
+    viewport,
+  };
+}
+
+function worldToMinimap(worldX, worldY, model) {
+  return {
+    x: model.offsetX + (worldX - model.minX) * model.scale,
+    y: model.offsetY + (worldY - model.minY) * model.scale,
+  };
+}
+
+function minimapToWorld(mapX, mapY, model) {
+  return {
+    x: model.minX + (mapX - model.offsetX) / model.scale,
+    y: model.minY + (mapY - model.offsetY) / model.scale,
+  };
+}
+
+function renderMinimap() {
+  if (!minimap || !minimapBody || !minimapSvg || !minimapViewport || !flowCanvas) return;
+
+  const model = buildMinimapModel();
+  if (!model) return;
+  minimapModel = model;
+
+  minimapSvg.setAttribute("viewBox", `0 0 ${model.mapWidth} ${model.mapHeight}`);
+  minimapSvg.setAttribute("width", String(model.mapWidth));
+  minimapSvg.setAttribute("height", String(model.mapHeight));
+
+  const nodeRects = state.nodes
+    .map((node) => {
+      const size = nodeSize(node);
+      const p = worldToMinimap(Number(node.x || 0), Number(node.y || 0), model);
+      return {
+        id: node.id,
+        x: p.x,
+        y: p.y,
+        w: Math.max(8, size.width * model.scale),
+        h: Math.max(6, size.height * model.scale),
+        type: node.type,
+      };
+    })
+    .map((item) => {
+      const active = item.id === selectedNodeId ? " active" : "";
+      const start = item.type === "start" ? " start" : "";
+      return `<rect class="minimap-node${active}${start}" x="${item.x.toFixed(2)}" y="${item.y.toFixed(2)}" width="${item.w.toFixed(2)}" height="${item.h.toFixed(2)}" rx="2.5" ry="2.5"></rect>`;
+    })
+    .join("");
+
+  minimapSvg.innerHTML = nodeRects;
+
+  const vTopLeft = worldToMinimap(model.viewport.x, model.viewport.y, model);
+  const vWidth = Math.max(14, model.viewport.width * model.scale);
+  const vHeight = Math.max(12, model.viewport.height * model.scale);
+
+  minimapViewport.style.left = `${vTopLeft.x}px`;
+  minimapViewport.style.top = `${vTopLeft.y}px`;
+  minimapViewport.style.width = `${vWidth}px`;
+  minimapViewport.style.height = `${vHeight}px`;
+}
+
+function moveCameraToWorld(worldX, worldY, center = true) {
+  if (!flowCanvas) return;
+  const zoom = state.zoom || 1;
+  if (center) {
+    state.cameraX = flowCanvas.clientWidth / 2 - worldX * zoom;
+    state.cameraY = flowCanvas.clientHeight / 2 - worldY * zoom;
+  } else {
+    state.cameraX = -worldX * zoom;
+    state.cameraY = -worldY * zoom;
+  }
+  applyZoom();
+}
+
+function initMinimapInteractions() {
+  if (!minimapBody || !minimapViewport) return;
+  if (minimapBody.dataset.bound === "1") return;
+  minimapBody.dataset.bound = "1";
+
+  minimapBody.addEventListener("mousedown", (event) => {
+    if (event.button !== 0) return;
+    if (!minimapModel) return;
+
+    const rect = minimapBody.getBoundingClientRect();
+    const localX = event.clientX - rect.left;
+    const localY = event.clientY - rect.top;
+
+    const onMove = (moveEvent) => {
+      if (!minimapDrag || !minimapModel) return;
+      const moveLocalX = moveEvent.clientX - rect.left;
+      const moveLocalY = moveEvent.clientY - rect.top;
+      const deltaMapX = moveLocalX - minimapDrag.startMapX;
+      const deltaMapY = moveLocalY - minimapDrag.startMapY;
+      const nextWorldX = minimapDrag.startWorldX + deltaMapX / minimapModel.scale;
+      const nextWorldY = minimapDrag.startWorldY + deltaMapY / minimapModel.scale;
+      moveCameraToWorld(nextWorldX, nextWorldY, false);
+    };
+
+    const onUp = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      minimapDrag = null;
+      scheduleAutoSave();
+    };
+
+    if (event.target === minimapViewport || minimapViewport.contains(event.target)) {
+      const viewport = getViewportWorldRect();
+      minimapDrag = {
+        startMapX: localX,
+        startMapY: localY,
+        startWorldX: viewport.x,
+        startWorldY: viewport.y,
+      };
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+
+    const world = minimapToWorld(localX, localY, minimapModel);
+    moveCameraToWorld(world.x, world.y, true);
+    scheduleAutoSave();
+    event.preventDefault();
+    event.stopPropagation();
+  });
 }
 
 function isNodeDeletable(node) {
@@ -393,6 +623,7 @@ function setSelectedNode(nodeId) {
     selectedNodeId = null;
   }
   syncSelectedNodes();
+  renderMinimap();
 }
 
 function removeNodeById(nodeId) {
@@ -1593,11 +1824,12 @@ function enableDrag(element, node) {
     if (frame) return;
     frame = requestAnimationFrame(() => {
       frame = null;
-      node.x = Math.max(24, latestX);
-      node.y = Math.max(24, latestY);
+      node.x = Math.min(SURFACE_WORLD_LIMIT, Math.max(-SURFACE_WORLD_LIMIT, latestX));
+      node.y = Math.min(SURFACE_WORLD_LIMIT, Math.max(-SURFACE_WORLD_LIMIT, latestY));
       element.style.left = `${node.x}px`;
       element.style.top = `${node.y}px`;
       renderEdges();
+      renderMinimap();
     });
   };
   const onUp = () => {
@@ -1605,6 +1837,7 @@ function enableDrag(element, node) {
     document.removeEventListener("mouseup", onUp);
     ensureSurfaceSize();
     renderEdges();
+    renderMinimap();
     scheduleAutoSave();
   };
   header.addEventListener("mousedown", (event) => {
@@ -1621,15 +1854,13 @@ function enableDrag(element, node) {
 }
 
 function renderEdges() {
-  if (!svg || !surface) return;
+  if (!svg || !surface || !flowCanvas) return;
   svg.innerHTML = "";
   const zoom = state.zoom || 1;
-  const width = Math.max(surface.scrollWidth, surface.clientWidth);
-  const height = Math.max(surface.scrollHeight, surface.clientHeight);
-  svg.setAttribute("width", String(width));
-  svg.setAttribute("height", String(height));
-  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
-  const rect = surface.getBoundingClientRect();
+  const canvasRect = flowCanvas.getBoundingClientRect();
+  const cameraX = Number(state.cameraX || 0);
+  const cameraY = Number(state.cameraY || 0);
+  const segments = [];
 
   state.edges.forEach((edge) => {
     const branch = edge.branch || "default";
@@ -1641,27 +1872,66 @@ function renderEdges() {
     if (!fromEl || !toEl) return;
     const fromRect = fromEl.getBoundingClientRect();
     const toRect = toEl.getBoundingClientRect();
-    const x1 = (fromRect.left - rect.left + fromRect.width / 2) / zoom;
-    const y1 = (fromRect.top - rect.top + fromRect.height / 2) / zoom;
-    const x2 = (toRect.left - rect.left + toRect.width / 2) / zoom;
-    const y2 = (toRect.top - rect.top + toRect.height / 2) / zoom;
+    const x1 = (fromRect.left - canvasRect.left - cameraX + fromRect.width / 2) / zoom;
+    const y1 = (fromRect.top - canvasRect.top - cameraY + fromRect.height / 2) / zoom;
+    const x2 = (toRect.left - canvasRect.left - cameraX + toRect.width / 2) / zoom;
+    const y2 = (toRect.top - canvasRect.top - cameraY + toRect.height / 2) / zoom;
+    segments.push({ edge, branch, x1, y1, x2, y2 });
+  });
+
+  if (!segments.length) {
+    svg.style.left = "0px";
+    svg.style.top = "0px";
+    svg.setAttribute("width", "1");
+    svg.setAttribute("height", "1");
+    svg.setAttribute("viewBox", "0 0 1 1");
+    return;
+  }
+
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  segments.forEach((seg) => {
+    minX = Math.min(minX, seg.x1, seg.x2);
+    minY = Math.min(minY, seg.y1, seg.y2);
+    maxX = Math.max(maxX, seg.x1, seg.x2);
+    maxY = Math.max(maxY, seg.y1, seg.y2);
+  });
+
+  minX -= 240;
+  minY -= 240;
+  maxX += 240;
+  maxY += 240;
+  const width = Math.max(1, Math.ceil(maxX - minX));
+  const height = Math.max(1, Math.ceil(maxY - minY));
+
+  svg.style.left = `${minX}px`;
+  svg.style.top = `${minY}px`;
+  svg.setAttribute("width", String(width));
+  svg.setAttribute("height", String(height));
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+
+  segments.forEach((seg) => {
+    const x1 = seg.x1 - minX;
+    const y1 = seg.y1 - minY;
+    const x2 = seg.x2 - minX;
+    const y2 = seg.y2 - minY;
     const dx = Math.max(60, Math.abs(x2 - x1) / 2);
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    path.setAttribute(
-      "d",
-      `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`,
-    );
+    path.setAttribute("d", `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`);
     const edgeClass =
-      branch === "no"
+      seg.branch === "no"
         ? "flow-edge edge-no energy"
-        : branch === "yes"
+        : seg.branch === "yes"
           ? "flow-edge edge-yes energy"
           : "flow-edge energy";
     path.setAttribute("class", edgeClass);
-    path.dataset.edgeId = edge.id;
+    path.dataset.edgeId = seg.edge.id;
     path.addEventListener("click", () => {
-      state.edges = state.edges.filter((e) => e.id !== edge.id);
+      state.edges = state.edges.filter((e) => e.id !== seg.edge.id);
       renderEdges();
+      renderMinimap();
       scheduleAutoSave();
     });
     svg.appendChild(path);
@@ -1677,6 +1947,7 @@ function renderAll() {
   renderNodes();
   syncSelectedNodes();
   renderEdges();
+  renderMinimap();
 }
 
 function addBlockAt(type, x, y) {
@@ -1686,8 +1957,8 @@ function addBlockAt(type, x, y) {
     type,
     title: preset.title,
     body: preset.body,
-    x: Math.max(24, x),
-    y: Math.max(24, y),
+    x: Math.min(SURFACE_WORLD_LIMIT, Math.max(-SURFACE_WORLD_LIMIT, x)),
+    y: Math.min(SURFACE_WORLD_LIMIT, Math.max(-SURFACE_WORLD_LIMIT, y)),
     tags: [],
   };
   if (type === "start") {
@@ -1765,15 +2036,23 @@ function enablePan() {
   let isPanning = false;
   let startX = 0;
   let startY = 0;
-  let originLeft = 0;
-  let originTop = 0;
+  let originCameraX = 0;
+  let originCameraY = 0;
+  let frame = null;
+  let latestCameraX = 0;
+  let latestCameraY = 0;
 
   const onMove = (event) => {
     if (!isPanning) return;
-    const dx = event.clientX - startX;
-    const dy = event.clientY - startY;
-    flowCanvas.scrollLeft = originLeft - dx;
-    flowCanvas.scrollTop = originTop - dy;
+    latestCameraX = originCameraX + (event.clientX - startX);
+    latestCameraY = originCameraY + (event.clientY - startY);
+    if (frame) return;
+    frame = requestAnimationFrame(() => {
+      frame = null;
+      state.cameraX = latestCameraX;
+      state.cameraY = latestCameraY;
+      applyZoom();
+    });
   };
 
   const onUp = () => {
@@ -1782,6 +2061,7 @@ function enablePan() {
     flowCanvas.classList.remove("panning");
     document.removeEventListener("mousemove", onMove);
     document.removeEventListener("mouseup", onUp);
+    scheduleAutoSave();
   };
 
   const canStartPan = (event) => {
@@ -1796,11 +2076,12 @@ function enablePan() {
     isPanning = true;
     startX = event.clientX;
     startY = event.clientY;
-    originLeft = flowCanvas.scrollLeft;
-    originTop = flowCanvas.scrollTop;
+    originCameraX = Number(state.cameraX || 0);
+    originCameraY = Number(state.cameraY || 0);
     flowCanvas.classList.add("panning");
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup", onUp);
+    event.preventDefault();
   });
 }
 
@@ -1814,6 +2095,8 @@ const payload = {
       edges: state.edges,
       tags: state.tags,
       zoom: state.zoom,
+      cameraX: state.cameraX,
+      cameraY: state.cameraY,
     },
   };
   const data = JSON.stringify(payload, null, 2);
@@ -1847,13 +2130,14 @@ if (flowCanvas) {
   flowCanvas.addEventListener("dblclick", (event) => {
     if (event.target.closest(".flow-node")) return;
     if (event.target.closest(".flow-zoom")) return;
+    if (event.target.closest(".flow-minimap")) return;
     if (event.target.closest(".block-picker")) return;
     const rect = flowCanvas.getBoundingClientRect();
-    const rawX = event.clientX - rect.left + flowCanvas.scrollLeft;
-    const rawY = event.clientY - rect.top + flowCanvas.scrollTop;
+    const rawX = event.clientX - rect.left;
+    const rawY = event.clientY - rect.top;
     const zoom = state.zoom || 1;
-    const nodeX = rawX / zoom;
-    const nodeY = rawY / zoom;
+    const nodeX = (rawX - Number(state.cameraX || 0)) / zoom;
+    const nodeY = (rawY - Number(state.cameraY || 0)) / zoom;
     openBlockPicker(rawX, rawY, nodeX, nodeY);
   });
 
@@ -1861,16 +2145,17 @@ if (flowCanvas) {
     if (!event.ctrlKey && !event.metaKey) return;
     event.preventDefault();
     const rect = flowCanvas.getBoundingClientRect();
+    const localX = event.clientX - rect.left;
+    const localY = event.clientY - rect.top;
     const prevZoom = state.zoom || 1;
     const direction = event.deltaY < 0 ? 1 : -1;
     const nextZoom = clampZoom(prevZoom + direction * ZOOM_STEP);
     if (nextZoom === prevZoom) return;
-    const mouseX = event.clientX - rect.left + flowCanvas.scrollLeft;
-    const mouseY = event.clientY - rect.top + flowCanvas.scrollTop;
-    const scale = nextZoom / prevZoom;
-    flowCanvas.scrollLeft = mouseX * scale - (event.clientX - rect.left);
-    flowCanvas.scrollTop = mouseY * scale - (event.clientY - rect.top);
+    const worldX = (localX - Number(state.cameraX || 0)) / prevZoom;
+    const worldY = (localY - Number(state.cameraY || 0)) / prevZoom;
     state.zoom = nextZoom;
+    state.cameraX = localX - worldX * nextZoom;
+    state.cameraY = localY - worldY * nextZoom;
     applyZoom();
     scheduleAutoSave();
   }, { passive: false });
@@ -1928,7 +2213,10 @@ if (zoomResetButton) {
   });
 }
 
-window.addEventListener("resize", renderEdges);
+window.addEventListener("resize", () => {
+  renderEdges();
+  renderMinimap();
+});
 document.addEventListener("click", (event) => {
   if (!blockPicker || !blockPicker.classList.contains("open")) return;
   if (blockPicker.contains(event.target)) return;
@@ -1941,6 +2229,7 @@ document.addEventListener("mousedown", (event) => {
   if (!flowCanvas.contains(event.target)) return;
   if (event.target.closest(".flow-node")) return;
   if (event.target.closest(".block-picker")) return;
+  if (event.target.closest(".flow-minimap")) return;
   setSelectedNode(null);
 });
 
@@ -1964,6 +2253,8 @@ ensureSession().then(async (ok) => {
   if (ok && (await loadFlow())) {
     buildBlockPicker();
     renderAll();
+    initMinimapInteractions();
+    applyZoom();
     enablePan();
   }
 });
