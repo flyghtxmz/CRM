@@ -650,6 +650,50 @@ body.canva-page .flow-canvas {
   min-height: 0;
 }
 
+body.canva-page .topbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px 12px;
+  padding: 10px 16px;
+}
+
+body.canva-page .flow-header-left {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+body.canva-page .flow-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+body.canva-page .flow-name-input {
+  width: min(360px, 100%);
+  max-width: 360px;
+  margin: 0;
+}
+
+body.canva-page .flow-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+body.canva-page .flow-header-actions button {
+  margin-top: 0;
+}
+
+body.canva-page .topbar-actions {
+  align-self: start;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
 .flows-page {
   background: var(--wa-bg);
   min-height: 100vh;
