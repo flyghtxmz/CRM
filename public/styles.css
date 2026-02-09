@@ -623,13 +623,31 @@ body.app-page .footer {
 
 body.canva-page {
   background: var(--wa-bg);
-  min-height: 100vh;
+  min-height: 100dvh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 body.canva-page main.layout {
   max-width: none;
   padding: 0;
-  height: calc(100vh - var(--topbar-height));
+  margin: 0;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+  overflow: hidden;
+}
+
+body.canva-page .flow-shell {
+  height: 100%;
+  min-height: 0;
+}
+
+body.canva-page .flow-canvas {
+  height: 100%;
+  min-height: 0;
 }
 
 .flows-page {
