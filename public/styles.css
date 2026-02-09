@@ -654,8 +654,13 @@ body.canva-page .topbar {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
+  align-content: start;
   gap: 10px 12px;
   padding: 10px 16px;
+  min-height: 112px;
+  overflow: visible;
+  position: relative;
+  z-index: 9;
 }
 
 body.canva-page .flow-header-left {
@@ -682,6 +687,7 @@ body.canva-page .flow-header-actions {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+  min-height: 40px;
 }
 
 body.canva-page .flow-header-actions button {
