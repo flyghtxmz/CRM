@@ -1,0 +1,11 @@
+name = "botzap-delay-cron"
+main = "src/index.ts"
+compatibility_date = "2026-02-09"
+
+[triggers]
+crons = ["*/1 * * * *"]
+
+# Configure in Worker settings:
+# - CRM_BASE_URL (text): ex. https://crm-e5k.pages.dev
+# - CRM_CRON_SECRET (secret): same value as BOTZAP_CRON_SECRET in CRM Pages
+
