@@ -328,6 +328,9 @@ function formatAction(action) {
   if (action.type === "tag") {
     return `Adicionar tag: ${action.tag || ""}`.trim();
   }
+  if (action.type === "wait_reply") {
+    return "Aguardar resposta do usuario";
+  }
   return action.label || "";
 }
 
@@ -1082,6 +1085,17 @@ function renderActionNode(node) {
     popup.dataset.view = "tag";
   });
   rootView.appendChild(tagOption);
+  const waitOption = document.createElement("button");
+  waitOption.type = "button";
+  waitOption.textContent = "Aguardar resposta";
+  waitOption.addEventListener("click", () => {
+    node.action = { type: "wait_reply" };
+    popup.classList.remove("open");
+    renderAll();
+    scheduleAutoSave();
+    saveFlow();
+  });
+  rootView.appendChild(waitOption);
 
   const tagView = document.createElement("div");
   tagView.className = "action-popup-tag";

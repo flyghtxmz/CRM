@@ -51,7 +51,7 @@ type FlowNode = {
   type: string;
   trigger?: string;
   rules?: Array<{ type?: string; op?: string; tag?: string; keyword?: string; value?: string }>;
-  action?: { type?: string; tag?: string };
+  action?: { type?: string; tag?: string; label?: string };
   body?: string;
   url?: string;
   image?: string;
@@ -95,8 +95,19 @@ type DelayJob = {
   retry_count?: number;
 };
 
+type WaitReplyState = {
+  id: string;
+  flow_id: string;
+  flow_name?: string;
+  wa_id: string;
+  next_node_id: string;
+  node_id?: string;
+  created_at: number;
+};
+
 const FLOW_TRIGGER_DEBOUNCE_SEC = 10;
 const FLOW_DELAY_INDEX_KEY = "flow-delay-jobs:index";
+const FLOW_WAIT_REPLY_PREFIX = "flow-wait:";
 const MAX_DELAY_JOBS_PER_TICK = 20;
 const THREAD_CACHE_LIMIT = 30;
 const CONTACT_CACHE_LIMIT = 120;
@@ -107,6 +118,7 @@ const DELAY_JOB_FALLBACK_CLAIM_TTL_SEC = 6 * 3600;
 const DELAY_JOB_CLAIM_MAX_AGE_SEC = 7 * 24 * 3600;
 const DELAY_JOB_CLEANUP_INTERVAL_SEC = 3600;
 const DELAY_JOB_CLEANUP_LAST_KEY = "flow-delay-claims:last-cleanup";
+const WAIT_REPLY_TTL_SEC = 14 * 24 * 3600;
 
 
 
@@ -247,6 +259,52 @@ function formatDelayHuman(value: number, unit: string) {
 
 function newDelayJobId() {
   return `delay:${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+}
+
+function newWaitReplyId() {
+  return `wait:${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+}
+
+function waitReplyKey(waId: string) {
+  return `${FLOW_WAIT_REPLY_PREFIX}${waId}`;
+}
+
+async function listWaitReplyStates(kv: KVNamespace, waId: string) {
+  const current = (await kv.get(waitReplyKey(waId), "json")) as WaitReplyState[] | WaitReplyState | null;
+  if (!current) return [] as WaitReplyState[];
+  if (Array.isArray(current)) {
+    return current.filter((item) => item && item.flow_id && item.next_node_id);
+  }
+  if (typeof current === "object" && current.flow_id && current.next_node_id) {
+    return [current as WaitReplyState];
+  }
+  return [] as WaitReplyState[];
+}
+
+async function enqueueWaitReplyState(kv: KVNamespace, state: WaitReplyState) {
+  const current = await listWaitReplyStates(kv, state.wa_id);
+  const deduped = current.filter(
+    (item) =>
+      !(
+        (item.flow_id || "") === (state.flow_id || "") &&
+        (item.next_node_id || "") === (state.next_node_id || "")
+      ),
+  );
+  deduped.push(state);
+  if (deduped.length > 20) {
+    deduped.splice(0, deduped.length - 20);
+  }
+  await kv.put(waitReplyKey(state.wa_id), JSON.stringify(deduped), {
+    expirationTtl: WAIT_REPLY_TTL_SEC,
+  });
+}
+
+async function takeWaitReplyStates(kv: KVNamespace, waId: string) {
+  const items = await listWaitReplyStates(kv, waId);
+  if (items.length) {
+    await kv.delete(waitReplyKey(waId));
+  }
+  return items;
 }
 
 async function enqueueDelayJob(kv: KVNamespace, job: DelayJob) {
@@ -854,6 +912,37 @@ async function runFlow(
       }
 
       if (node.type === "action") {
+        if (node.action?.type === "wait_reply") {
+          const nextAfterWait = findNextEdge(edges, node.id, "default");
+          if (!nextAfterWait) {
+            logNotes.push(`acao:aguardo_resposta:${node.id}:sem_proximo`);
+            currentId = node.id;
+            edge = undefined;
+            continue;
+          }
+          const kv = env.BOTZAP_KV;
+          if (!kv) {
+            logNotes.push(`acao:aguardo_resposta:${node.id}:sem_kv`);
+            currentId = node.id;
+            edge = nextAfterWait;
+            continue;
+          }
+
+          await enqueueWaitReplyState(kv, {
+            id: newWaitReplyId(),
+            flow_id: flow.id,
+            flow_name: flow.name,
+            wa_id: contact.wa_id,
+            next_node_id: nextAfterWait.to,
+            node_id: node.id,
+            created_at: nowUnix(),
+          });
+          logNotes.push(`acao:aguardo_resposta:${node.id}:ok`);
+          currentId = node.id;
+          edge = undefined;
+          continue;
+        }
+
         applyAction(node, contact);
         if (node.action?.type === "tag") {
           logNotes.push(`acao:tag:${node.action.tag || ""}`);
@@ -1326,8 +1415,69 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       const inboundText = messageConditionText(message);
       let executedCount = 0;
       let logged = false;
+      const waitStates = await takeWaitReplyStates(kv, waId);
 
-      if (!flows.length) {
+      if (waitStates.length) {
+        for (const waitState of waitStates) {
+          const tagsBefore = [...(contactRecord.tags || [])];
+          const notes: string[] = [`wait:${waitState.id}:resume`];
+          const flow = flows.find((item) => item.id === waitState.flow_id && item.enabled !== false);
+          if (!flow) {
+            notes.push("flow:nao_encontrado");
+            appendFlowLog(logs, {
+              ts: Date.now(),
+              wa_id: waId,
+              flow_id: waitState.flow_id,
+              flow_name: waitState.flow_name || "(aguardo sem fluxo)",
+              trigger: "Aguardo de resposta",
+              tags_before: tagsBefore,
+              tags_after: [...(contactRecord.tags || [])],
+              notes,
+            });
+            logged = true;
+            continue;
+          }
+
+          try {
+            const executed = await runFlow(
+              env,
+              flow,
+              contactRecord,
+              notes,
+              inboundText,
+              waitState.next_node_id,
+            );
+            if (executed) executedCount += 1;
+            const tagsAfter = [...(contactRecord.tags || [])];
+            if (notes.length || tagsBefore.join(",") !== tagsAfter.join(",")) {
+              appendFlowLog(logs, {
+                ts: Date.now(),
+                wa_id: waId,
+                flow_id: flow.id,
+                flow_name: flow.name,
+                trigger: "Aguardo de resposta",
+                tags_before: tagsBefore,
+                tags_after: tagsAfter,
+                notes,
+              });
+              logged = true;
+            }
+          } catch (err) {
+            const messageText = err instanceof Error ? err.message : String(err || "erro");
+            appendFlowLog(logs, {
+              ts: Date.now(),
+              wa_id: waId,
+              flow_id: flow.id,
+              flow_name: flow.name || "(erro aguardo)",
+              trigger: "Aguardo de resposta",
+              tags_before: tagsBefore,
+              tags_after: [...(contactRecord.tags || [])],
+              notes: [...notes, `erro:${messageText.slice(0, 180)}`],
+            });
+            logged = true;
+          }
+        }
+      } else if (!flows.length) {
         appendFlowLog(logs, {
           ts: Date.now(),
           wa_id: waId,
@@ -1409,14 +1559,18 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       }
 
       if (!logged) {
+        const triggerLabel = waitStates.length ? "Aguardo de resposta" : "Quando usuario enviar mensagem";
+        const summaryNotes = waitStates.length
+          ? [`esperas:${waitStates.length}`, `executados:${executedCount}`]
+          : [`flows:${flows.length}`, `executados:${executedCount}`];
         appendFlowLog(logs, {
           ts: Date.now(),
           wa_id: waId,
           flow_name: "(sem acao)",
-          trigger: "Quando usuario enviar mensagem",
+          trigger: triggerLabel,
           tags_before: [...(contactRecord.tags || [])],
           tags_after: [...(contactRecord.tags || [])],
-          notes: [`flows:${flows.length}`, `executados:${executedCount}`],
+          notes: summaryNotes,
         });
       }
 
