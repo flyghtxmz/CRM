@@ -485,6 +485,12 @@ button:hover {
   color: #7f2222;
 }
 
+.chat-bubble.event.event-click {
+  background: #ffe2e2;
+  border-color: #f0b8b8;
+  color: #7f2222;
+}
+
 .chat-bubble.event.event-delay.event-done {
   background: #ffe2e2;
   border-color: #f0b8b8;
@@ -499,6 +505,10 @@ button:hover {
 }
 
 .chat-bubble.event.event-delay .chat-bubble-meta.event-meta {
+  color: #9b5656;
+}
+
+.chat-bubble.event.event-click .chat-bubble-meta.event-meta {
   color: #9b5656;
 }
 

@@ -1,5 +1,6 @@
 import { Env, getSession, json, options, readJson } from "./_utils";
 import { processWaitClickStates } from "../webhook";
+import { dbUpsertContact, dbUpsertConversation, dbUpsertMessage } from "./_d1";
 
 type TrackBody = {
   wa_id?: string;
@@ -29,6 +30,8 @@ type StoredMessage = {
   name?: string;
   direction?: "in" | "out";
   status?: string;
+  event_kind?: string;
+  event_state?: string;
 };
 
 type DeviceType = "mobile" | "desktop" | "unknown";
@@ -169,18 +172,58 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   const threadKey = `thread:${waId}`;
   const thread = (await session.kv.get(threadKey, "json")) as StoredMessage[] | null;
   const threadList: StoredMessage[] = Array.isArray(thread) ? thread : [];
+  const eventId = `event:click:${Date.now()}_${Math.floor(Math.random() * 100000)}`;
   threadList.push({
-    id: `click:${Date.now()}`,
+    id: eventId,
     from: waId,
     timestamp: String(ts),
     type: "event",
     text: message,
     direction: "in",
+    event_kind: "click",
+    event_state: "done",
   });
   if (threadList.length > 50) {
     threadList.splice(0, threadList.length - 50);
   }
   await session.kv.put(threadKey, JSON.stringify(threadList));
+
+  if (env.BOTZAP_DB) {
+    try {
+      await dbUpsertContact(env, {
+        wa_id: waId,
+        name: updatedContact.name,
+        tags: updatedContact.tags || [],
+        last_message: message,
+        last_timestamp: ts,
+        last_type: "event",
+        last_direction: "in",
+      });
+
+      await dbUpsertConversation(env, {
+        wa_id: waId,
+        name: conversation.name,
+        last_message: message,
+        last_timestamp: ts,
+        last_type: "event",
+        last_direction: "in",
+      });
+
+      await dbUpsertMessage(env, {
+        id: eventId,
+        wa_id: waId,
+        from: waId,
+        direction: "in",
+        timestamp: ts,
+        type: "event",
+        text: message,
+        event_kind: "click",
+        event_state: "done",
+      });
+    } catch {
+      // keep click test endpoint resilient if D1 write fails
+    }
+  }
 
   let waitClick = { matched: 0, executed: 0, errors: 0 };
   try {
