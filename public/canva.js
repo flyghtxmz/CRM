@@ -45,6 +45,7 @@ let linkFromId = null;
 let linkFromBranch = null;
 let autoSaveTimer = null;
 let selectedNodeId = null;
+let messageBlockOrderCache = new Map();
 
 const blockPresets = {
   start: { title: "Quando", body: "" },
@@ -393,22 +394,90 @@ function formatDelaySummary(value, unit) {
 }
 
 function messageBlockNameForNode(nodeId) {
-  let count = 0;
-  state.nodes.forEach((node) => {
-    if (!MESSAGE_NODE_TYPES.has(String(node?.type || ""))) return;
-    count += 1;
-  });
-  if (!count) return "";
+  const order = Number(messageBlockOrderCache.get(String(nodeId || "")) || 0);
+  return order > 0 ? `Bloco ${order}` : "";
+}
 
-  let index = 0;
-  for (const node of state.nodes) {
-    if (!MESSAGE_NODE_TYPES.has(String(node?.type || ""))) continue;
-    index += 1;
-    if (String(node.id || "") === String(nodeId || "")) {
-      return `Bloco ${index}`;
+function nodePositionSort(a, b) {
+  const ay = Number(a?.y || 0);
+  const by = Number(b?.y || 0);
+  if (ay !== by) return ay - by;
+  const ax = Number(a?.x || 0);
+  const bx = Number(b?.x || 0);
+  if (ax !== bx) return ax - bx;
+  return String(a?.id || "").localeCompare(String(b?.id || ""));
+}
+
+function edgeBranchPriority(edge) {
+  const branch = String(edge?.branch || "default").toLowerCase();
+  if (branch === "default") return 0;
+  if (branch === "yes") return 1;
+  if (branch === "no") return 2;
+  return 3;
+}
+
+function computeMessageBlockOrderMap() {
+  const order = new Map();
+  const nodesById = new Map();
+  state.nodes.forEach((node) => nodesById.set(String(node.id || ""), node));
+
+  const outgoing = new Map();
+  state.edges.forEach((edge) => {
+    const from = String(edge?.from || "");
+    if (!from) return;
+    const list = outgoing.get(from) || [];
+    list.push(edge);
+    outgoing.set(from, list);
+  });
+
+  const startNodes = state.nodes
+    .filter((node) => String(node?.type || "") === "start")
+    .sort(nodePositionSort);
+
+  const visiting = new Set();
+  const visited = new Set();
+  let counter = 0;
+
+  const walk = (nodeId) => {
+    const id = String(nodeId || "");
+    if (!id || visiting.has(id) || visited.has(id)) return;
+    const node = nodesById.get(id);
+    if (!node) return;
+
+    visiting.add(id);
+    if (MESSAGE_NODE_TYPES.has(String(node.type || "")) && !order.has(id)) {
+      counter += 1;
+      order.set(id, counter);
     }
+
+    const children = [...(outgoing.get(id) || [])].sort((a, b) => {
+      const pa = edgeBranchPriority(a);
+      const pb = edgeBranchPriority(b);
+      if (pa !== pb) return pa - pb;
+      const na = nodesById.get(String(a?.to || ""));
+      const nb = nodesById.get(String(b?.to || ""));
+      return nodePositionSort(na || { id: a?.to, x: 0, y: 0 }, nb || { id: b?.to, x: 0, y: 0 });
+    });
+    children.forEach((edge) => walk(String(edge?.to || "")));
+
+    visiting.delete(id);
+    visited.add(id);
+  };
+
+  if (startNodes.length) {
+    startNodes.forEach((node) => walk(String(node.id || "")));
   }
-  return "";
+
+  const remainingMessageNodes = state.nodes
+    .filter((node) => MESSAGE_NODE_TYPES.has(String(node?.type || "")) && !order.has(String(node.id || "")))
+    .sort(nodePositionSort);
+
+  remainingMessageNodes.forEach((node) => {
+    counter += 1;
+    order.set(String(node.id || ""), counter);
+  });
+
+  return order;
 }
 
 function appendMessageHeaderTitle(header, node, fallbackTitle) {
@@ -1799,6 +1868,8 @@ function renderNodes() {
   if (!surface) return;
   const existing = surface.querySelectorAll(".flow-node");
   existing.forEach((node) => node.remove());
+
+  messageBlockOrderCache = computeMessageBlockOrderMap();
 
   state.nodes.forEach((node) => {
     if (node.type === "start") {
