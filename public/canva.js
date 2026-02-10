@@ -53,6 +53,15 @@ let ffmpegContext = {
 };
 
 const AUDIO_LIBRARY_ENDPOINT = "/api/audio-library";
+function formatUnknownError(err) {
+  if (err instanceof Error && err.message) return err.message;
+  if (typeof err === "string" && err.trim()) return err;
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err || "Erro desconhecido");
+  }
+}
 
 async function fetchAudioLibrary(force = false) {
   if (!force && Array.isArray(audioLibraryCache) && audioLibraryCache.length) {
@@ -178,9 +187,19 @@ async function uploadAudioAsset(file, name) {
     credentials: "include",
   });
 
-  const data = await res.json().catch(() => null);
+  const rawText = await res.text();
+  let data = null;
+  try {
+    data = rawText ? JSON.parse(rawText) : null;
+  } catch {
+    data = null;
+  }
+
   if (!res.ok || !data || !data.ok || !data.data) {
-    throw new Error(data?.error || "Nao foi possivel enviar audio");
+    const backendError = data?.error ? String(data.error) : "";
+    const fallbackText = rawText ? rawText.slice(0, 240) : "";
+    const detail = backendError || fallbackText || "Nao foi possivel enviar audio";
+    throw new Error(`Upload falhou (HTTP ${res.status}): ${detail}`);
   }
 
   const uploaded = data.data;
@@ -2057,7 +2076,7 @@ function renderAudioMessageNode(node) {
     fileInput.click();
   });
 
-  fileInput.addEventListener("change", async () => {
+    fileInput.addEventListener("change", async () => {
     const picked = fileInput.files && fileInput.files[0] ? fileInput.files[0] : null;
     if (!picked) return;
 
@@ -2071,7 +2090,8 @@ function renderAudioMessageNode(node) {
       applyAssetToNode(asset);
       setStatus("Audio enviado com sucesso.", "ok");
     } catch (err) {
-      setStatus(err instanceof Error ? err.message : "Falha no upload do audio", "error");
+      setStatus(formatUnknownError(err), "error");
+      console.error("[botzap-audio-upload-error]", err);
     } finally {
       fileInput.value = "";
     }
