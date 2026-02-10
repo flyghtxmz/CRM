@@ -334,6 +334,9 @@ function formatAction(action) {
   if (action.type === "wait_reply") {
     return "Aguardar resposta do usuario";
   }
+  if (action.type === "wait_click") {
+    return "Aguardar click no link";
+  }
   return action.label || "";
 }
 
@@ -1109,6 +1112,17 @@ function renderActionNode(node) {
     saveFlow();
   });
   rootView.appendChild(waitOption);
+  const waitClickOption = document.createElement("button");
+  waitClickOption.type = "button";
+  waitClickOption.textContent = "Aguardar click no link";
+  waitClickOption.addEventListener("click", () => {
+    node.action = { type: "wait_click" };
+    popup.classList.remove("open");
+    renderAll();
+    scheduleAutoSave();
+    saveFlow();
+  });
+  rootView.appendChild(waitClickOption);
 
   const tagView = document.createElement("div");
   tagView.className = "action-popup-tag";

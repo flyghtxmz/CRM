@@ -1,4 +1,5 @@
 import { Env, json, options } from "./_utils";
+import { processWaitClickStates } from "../webhook";
 
 type TrackBody = {
   event?: string;
@@ -192,6 +193,17 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   }
   await kv.put(threadKey, JSON.stringify(threadList));
 
-  return json({ ok: true, device_type: deviceType });
+  let waitClick = { matched: 0, executed: 0, errors: 0 };
+  try {
+    waitClick = await processWaitClickStates(
+      env,
+      waId,
+      String(link || "click"),
+    );
+  } catch {
+    // keep tracking endpoint resilient
+  }
+
+  return json({ ok: true, device_type: deviceType, wait_click: waitClick });
 };
 

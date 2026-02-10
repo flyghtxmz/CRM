@@ -105,9 +105,20 @@ type WaitReplyState = {
   created_at: number;
 };
 
+type WaitClickState = {
+  id: string;
+  flow_id: string;
+  flow_name?: string;
+  wa_id: string;
+  next_node_id: string;
+  node_id?: string;
+  created_at: number;
+};
+
 const FLOW_TRIGGER_DEBOUNCE_SEC = 10;
 const FLOW_DELAY_INDEX_KEY = "flow-delay-jobs:index";
 const FLOW_WAIT_REPLY_PREFIX = "flow-wait:";
+const FLOW_WAIT_CLICK_PREFIX = "flow-wait-click:";
 const MAX_DELAY_JOBS_PER_TICK = 20;
 const THREAD_CACHE_LIMIT = 30;
 const CONTACT_CACHE_LIMIT = 120;
@@ -119,6 +130,7 @@ const DELAY_JOB_CLAIM_MAX_AGE_SEC = 7 * 24 * 3600;
 const DELAY_JOB_CLEANUP_INTERVAL_SEC = 3600;
 const DELAY_JOB_CLEANUP_LAST_KEY = "flow-delay-claims:last-cleanup";
 const WAIT_REPLY_TTL_SEC = 14 * 24 * 3600;
+const WAIT_CLICK_TTL_SEC = 14 * 24 * 3600;
 
 
 
@@ -265,8 +277,16 @@ function newWaitReplyId() {
   return `wait:${Date.now()}_${Math.floor(Math.random() * 100000)}`;
 }
 
+function newWaitClickId() {
+  return `wait_click:${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+}
+
 function waitReplyKey(waId: string) {
   return `${FLOW_WAIT_REPLY_PREFIX}${waId}`;
+}
+
+function waitClickKey(waId: string) {
+  return `${FLOW_WAIT_CLICK_PREFIX}${waId}`;
 }
 
 async function listWaitReplyStates(kv: KVNamespace, waId: string) {
@@ -303,6 +323,44 @@ async function takeWaitReplyStates(kv: KVNamespace, waId: string) {
   const items = await listWaitReplyStates(kv, waId);
   if (items.length) {
     await kv.delete(waitReplyKey(waId));
+  }
+  return items;
+}
+
+async function listWaitClickStates(kv: KVNamespace, waId: string) {
+  const current = (await kv.get(waitClickKey(waId), "json")) as WaitClickState[] | WaitClickState | null;
+  if (!current) return [] as WaitClickState[];
+  if (Array.isArray(current)) {
+    return current.filter((item) => item && item.flow_id && item.next_node_id);
+  }
+  if (typeof current === "object" && current.flow_id && current.next_node_id) {
+    return [current as WaitClickState];
+  }
+  return [] as WaitClickState[];
+}
+
+async function enqueueWaitClickState(kv: KVNamespace, state: WaitClickState) {
+  const current = await listWaitClickStates(kv, state.wa_id);
+  const deduped = current.filter(
+    (item) =>
+      !(
+        (item.flow_id || "") === (state.flow_id || "") &&
+        (item.next_node_id || "") === (state.next_node_id || "")
+      ),
+  );
+  deduped.push(state);
+  if (deduped.length > 20) {
+    deduped.splice(0, deduped.length - 20);
+  }
+  await kv.put(waitClickKey(state.wa_id), JSON.stringify(deduped), {
+    expirationTtl: WAIT_CLICK_TTL_SEC,
+  });
+}
+
+async function takeWaitClickStates(kv: KVNamespace, waId: string) {
+  const items = await listWaitClickStates(kv, waId);
+  if (items.length) {
+    await kv.delete(waitClickKey(waId));
   }
   return items;
 }
@@ -949,6 +1007,36 @@ async function runFlow(
           edge = undefined;
           continue;
         }
+        if (node.action?.type === "wait_click") {
+          const nextAfterWait = findNextEdge(edges, node.id, "default");
+          if (!nextAfterWait) {
+            logNotes.push(`acao:aguardo_click:${node.id}:sem_proximo`);
+            currentId = node.id;
+            edge = undefined;
+            continue;
+          }
+          const kv = env.BOTZAP_KV;
+          if (!kv) {
+            logNotes.push(`acao:aguardo_click:${node.id}:sem_kv`);
+            currentId = node.id;
+            edge = nextAfterWait;
+            continue;
+          }
+
+          await enqueueWaitClickState(kv, {
+            id: newWaitClickId(),
+            flow_id: flow.id,
+            flow_name: flow.name,
+            wa_id: contact.wa_id,
+            next_node_id: nextAfterWait.to,
+            node_id: node.id,
+            created_at: nowUnix(),
+          });
+          logNotes.push(`acao:aguardo_click:${node.id}:ok`);
+          currentId = node.id;
+          edge = undefined;
+          continue;
+        }
 
         applyAction(node, contact);
         if (node.action?.type === "tag") {
@@ -1122,6 +1210,112 @@ async function runFlow(
   }
 
   return true;
+}
+
+export async function processWaitClickStates(env: Env, waId: string, clickText = "") {
+  const kv = env.BOTZAP_KV;
+  if (!kv || !waId) return { matched: 0, executed: 0, errors: 0 };
+
+  const waitStates = await takeWaitClickStates(kv, waId);
+  if (!waitStates.length) return { matched: 0, executed: 0, errors: 0 };
+
+  const flowIndex = (await kv.get("flows:index", "json")) as Flow[] | null;
+  const flows: Flow[] = Array.isArray(flowIndex) ? flowIndex : [];
+
+  const logIndex = (await kv.get("flow-logs:index", "json")) as FlowLog[] | null;
+  const logs: FlowLog[] = Array.isArray(logIndex) ? logIndex : [];
+  const logsStartCount = logs.length;
+
+  const storedContact = (await kv.get(`contact:${waId}`, "json")) as Contact | null;
+  const contact: Contact = storedContact
+    ? { ...storedContact, tags: Array.isArray(storedContact.tags) ? storedContact.tags : [] }
+    : { wa_id: waId, tags: [] };
+
+  let executed = 0;
+  let errors = 0;
+
+  for (const state of waitStates) {
+    const tagsBefore = [...(contact.tags || [])];
+    const notes: string[] = [`wait_click:${state.id}:resume`];
+    const flow = flows.find((item) => item.id === state.flow_id && item.enabled !== false);
+
+    if (!flow) {
+      notes.push("flow:nao_encontrado");
+      appendFlowLog(logs, {
+        ts: Date.now(),
+        wa_id: waId,
+        flow_id: state.flow_id,
+        flow_name: state.flow_name || "(aguardo click sem fluxo)",
+        trigger: "Aguardar click no link",
+        tags_before: tagsBefore,
+        tags_after: [...(contact.tags || [])],
+        notes,
+      });
+      continue;
+    }
+
+    try {
+      const didExecute = await runFlow(
+        env,
+        flow,
+        contact,
+        notes,
+        clickText,
+        state.next_node_id,
+      );
+      if (didExecute) executed += 1;
+      const tagsAfter = [...(contact.tags || [])];
+      if (notes.length || tagsBefore.join(",") !== tagsAfter.join(",")) {
+        appendFlowLog(logs, {
+          ts: Date.now(),
+          wa_id: waId,
+          flow_id: flow.id,
+          flow_name: flow.name,
+          trigger: "Aguardar click no link",
+          tags_before: tagsBefore,
+          tags_after: tagsAfter,
+          notes,
+        });
+      }
+    } catch (err) {
+      errors += 1;
+      const messageText = err instanceof Error ? err.message : String(err || "erro");
+      appendFlowLog(logs, {
+        ts: Date.now(),
+        wa_id: waId,
+        flow_id: flow.id,
+        flow_name: flow.name || "(erro aguardo click)",
+        trigger: "Aguardar click no link",
+        tags_before: tagsBefore,
+        tags_after: [...(contact.tags || [])],
+        notes: [...notes, `erro:${messageText.slice(0, 180)}`],
+      });
+    }
+  }
+
+  const contactIndex = (await kv.get("contacts:index", "json")) as Contact[] | null;
+  const contactList: Contact[] = Array.isArray(contactIndex) ? contactIndex : [];
+  const merged = upsertContactList(contactList, contact);
+  await kv.put("contacts:index", JSON.stringify(contactList));
+  await kv.put(`contact:${waId}`, JSON.stringify(merged));
+  try {
+    await dbUpsertContact(env, merged);
+  } catch {
+    // keep click processor resilient if D1 contact upsert fails
+  }
+
+  if (logs.length > FLOW_LOG_CACHE_LIMIT) logs.splice(FLOW_LOG_CACHE_LIMIT);
+  await kv.put("flow-logs:index", JSON.stringify(logs));
+  const addedLogs = Math.max(0, logs.length - logsStartCount);
+  if (addedLogs > 0) {
+    try {
+      await dbInsertFlowLogs(env, logs.slice(0, addedLogs));
+    } catch {
+      // keep click processor resilient if D1 log insert fails
+    }
+  }
+
+  return { matched: waitStates.length, executed, errors };
 }
 
 export async function processDueDelayJobs(env: Env, limit = MAX_DELAY_JOBS_PER_TICK) {
