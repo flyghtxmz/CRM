@@ -231,8 +231,13 @@ async function loadFlow() {
       node.linkFormat = "default";
     }
     if (node.type === "action") {
-      if (node.action && typeof node.action === "object") return;
-      if (typeof node.action === "string" && node.action.trim()) {
+      if (node.action && typeof node.action === "object") {
+        if (node.action.type === "wait_click") {
+          node.action.with_timeout = node.action.with_timeout !== false;
+          node.action.timeout_value = normalizeWaitClickValue(node.action.timeout_value);
+          node.action.timeout_unit = normalizeWaitClickUnit(node.action.timeout_unit);
+        }
+      } else if (typeof node.action === "string" && node.action.trim()) {
         node.action = { type: "text", label: node.action.trim() };
       } else {
         node.action = null;
@@ -338,7 +343,11 @@ function formatAction(action) {
     return "Aguardar resposta do usuario";
   }
   if (action.type === "wait_click") {
-    return "Aguardar click no link";
+    const withTimeout = action.with_timeout !== false;
+    if (!withTimeout) return "Aguardar click no link";
+    const value = normalizeWaitClickValue(action.timeout_value);
+    const unit = normalizeWaitClickUnit(action.timeout_unit);
+    return `Aguardar click (${formatDelaySummary(value, unit)})`;
   }
   return action.label || "";
 }
@@ -382,6 +391,16 @@ function normalizeDelayUnit(unit) {
 function normalizeDelayValue(value) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return 1;
+  return Math.max(1, Math.floor(parsed));
+}
+
+function normalizeWaitClickUnit(unit) {
+  return normalizeDelayUnit(unit || "minutes");
+}
+
+function normalizeWaitClickValue(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 30;
   return Math.max(1, Math.floor(parsed));
 }
 
@@ -1255,13 +1274,6 @@ function renderActionNode(node) {
   const waitClickOption = document.createElement("button");
   waitClickOption.type = "button";
   waitClickOption.textContent = "Aguardar click no link";
-  waitClickOption.addEventListener("click", () => {
-    node.action = { type: "wait_click" };
-    popup.classList.remove("open");
-    renderAll();
-    scheduleAutoSave();
-    saveFlow();
-  });
   rootView.appendChild(waitClickOption);
 
   const tagView = document.createElement("div");
@@ -1351,9 +1363,105 @@ function renderActionNode(node) {
   tagView.appendChild(tagHeader);
   tagView.appendChild(tagPanel);
 
+  const waitClickView = document.createElement("div");
+  waitClickView.className = "action-popup-wait-click";
+  const waitClickHeader = document.createElement("div");
+  waitClickHeader.className = "action-popup-title";
+  const waitClickBackBtn = document.createElement("button");
+  waitClickBackBtn.type = "button";
+  waitClickBackBtn.className = "ghost";
+  waitClickBackBtn.textContent = "Voltar";
+  waitClickBackBtn.addEventListener("click", () => {
+    popup.dataset.view = "root";
+  });
+  const waitClickTitle = document.createElement("span");
+  waitClickTitle.textContent = "Aguardar click";
+  waitClickHeader.appendChild(waitClickBackBtn);
+  waitClickHeader.appendChild(waitClickTitle);
+
+  const waitClickPanel = document.createElement("div");
+  waitClickPanel.className = "action-wait-click-panel";
+
+  const switchRow = document.createElement("label");
+  switchRow.className = "action-wait-click-switch";
+  const switchInput = document.createElement("input");
+  switchInput.type = "checkbox";
+  const switchText = document.createElement("span");
+  switchText.textContent = "Com prazo";
+  switchRow.appendChild(switchInput);
+  switchRow.appendChild(switchText);
+
+  const timeoutRow = document.createElement("div");
+  timeoutRow.className = "action-wait-click-time";
+  const timeoutValueInput = document.createElement("input");
+  timeoutValueInput.type = "number";
+  timeoutValueInput.min = "1";
+  timeoutValueInput.step = "1";
+  timeoutValueInput.value = "30";
+  const timeoutUnitSelect = document.createElement("select");
+  timeoutUnitSelect.innerHTML = `
+    <option value="seconds">Segundos</option>
+    <option value="minutes">Minutos</option>
+    <option value="hours">Horas</option>
+  `;
+  timeoutUnitSelect.value = "minutes";
+  timeoutRow.appendChild(timeoutValueInput);
+  timeoutRow.appendChild(timeoutUnitSelect);
+
+  const timeoutHint = document.createElement("div");
+  timeoutHint.className = "hint";
+  timeoutHint.textContent = "Saidas: Clicou (imediato) e Nao clicou (após prazo).";
+
+  const waitClickSave = document.createElement("button");
+  waitClickSave.type = "button";
+  waitClickSave.textContent = "Salvar";
+
+  const refreshWaitClickUi = () => {
+    const enabled = switchInput.checked;
+    timeoutValueInput.disabled = !enabled;
+    timeoutUnitSelect.disabled = !enabled;
+    timeoutRow.classList.toggle("disabled", !enabled);
+  };
+
+  const openWaitClickConfig = () => {
+    const current =
+      node.action?.type === "wait_click" && node.action
+        ? node.action
+        : { type: "wait_click", with_timeout: true, timeout_value: 30, timeout_unit: "minutes" };
+    switchInput.checked = current.with_timeout !== false;
+    timeoutValueInput.value = String(normalizeWaitClickValue(current.timeout_value));
+    timeoutUnitSelect.value = normalizeWaitClickUnit(current.timeout_unit);
+    refreshWaitClickUi();
+    popup.dataset.view = "wait_click";
+  };
+
+  switchInput.addEventListener("change", refreshWaitClickUi);
+  waitClickSave.addEventListener("click", () => {
+    node.action = {
+      type: "wait_click",
+      with_timeout: switchInput.checked,
+      timeout_value: normalizeWaitClickValue(timeoutValueInput.value),
+      timeout_unit: normalizeWaitClickUnit(timeoutUnitSelect.value),
+    };
+    popup.classList.remove("open");
+    renderAll();
+    scheduleAutoSave();
+    saveFlow();
+  });
+
+  waitClickOption.addEventListener("click", openWaitClickConfig);
+
+  waitClickPanel.appendChild(switchRow);
+  waitClickPanel.appendChild(timeoutRow);
+  waitClickPanel.appendChild(timeoutHint);
+  waitClickPanel.appendChild(waitClickSave);
+  waitClickView.appendChild(waitClickHeader);
+  waitClickView.appendChild(waitClickPanel);
+
   popup.appendChild(popupHeader);
   popup.appendChild(rootView);
   popup.appendChild(tagView);
+  popup.appendChild(waitClickView);
   body.appendChild(popup);
 
   const openPopup = (event) => {
@@ -1363,9 +1471,15 @@ function renderActionNode(node) {
   };
   placeholder.addEventListener("click", openPopup);
 
+  const isWaitClickAction = node.action?.type === "wait_click";
+  const waitClickWithTimeout = isWaitClickAction ? node.action?.with_timeout !== false : false;
   const footer = document.createElement("div");
   footer.className = "flow-node-footer";
-  footer.textContent = "Proximo Passo";
+  footer.textContent = isWaitClickAction
+    ? waitClickWithTimeout
+      ? "Clicou / Nao clicou"
+      : "Clicou"
+    : "Proximo Passo";
 
   const connectorIn = document.createElement("div");
   connectorIn.className = "connector in";
@@ -1389,20 +1503,48 @@ function renderActionNode(node) {
   });
 
   const connectorOut = document.createElement("div");
-  connectorOut.className = "connector out";
-  connectorOut.title = "Saida";
+  connectorOut.className = isWaitClickAction ? "connector out yes" : "connector out";
+  connectorOut.title = isWaitClickAction ? "Clicou" : "Saida";
   connectorOut.addEventListener("click", () => {
     linkFromId = node.id;
-    linkFromBranch = "default";
+    linkFromBranch = isWaitClickAction ? "yes" : "default";
     clearLinking();
     el.classList.add("linking");
   });
+
+  let connectorOutNo = null;
+  let yesLabel = null;
+  let noLabel = null;
+  if (isWaitClickAction) {
+    connectorOutNo = document.createElement("div");
+    connectorOutNo.className = "connector out no";
+    connectorOutNo.title = waitClickWithTimeout ? "Nao clicou" : "Nao clicou (desligado)";
+    if (!waitClickWithTimeout) connectorOutNo.classList.add("disabled");
+    connectorOutNo.addEventListener("click", () => {
+      if (!waitClickWithTimeout) return;
+      linkFromId = node.id;
+      linkFromBranch = "no";
+      clearLinking();
+      el.classList.add("linking");
+    });
+
+    yesLabel = document.createElement("span");
+    yesLabel.className = "flow-branch-label yes";
+    yesLabel.textContent = "Clicou";
+    noLabel = document.createElement("span");
+    noLabel.className = "flow-branch-label no";
+    noLabel.textContent = "Nao clicou";
+    if (!waitClickWithTimeout) noLabel.classList.add("disabled");
+  }
 
   el.appendChild(header);
   el.appendChild(body);
   el.appendChild(footer);
   el.appendChild(connectorIn);
   el.appendChild(connectorOut);
+  if (connectorOutNo) el.appendChild(connectorOutNo);
+  if (yesLabel) el.appendChild(yesLabel);
+  if (noLabel) el.appendChild(noLabel);
   surface.appendChild(el);
   attachNodeInteractions(el, node);
   enableDrag(el, node);

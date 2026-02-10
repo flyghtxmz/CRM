@@ -1125,6 +1125,20 @@ body.canva-page .topbar-actions {
   display: none;
 }
 
+.action-popup-wait-click {
+  display: none;
+  gap: 10px;
+}
+
+.action-popup[data-view="wait_click"] .action-popup-wait-click {
+  display: grid;
+}
+
+.action-popup[data-view="wait_click"] .action-popup-root,
+.action-popup[data-view="wait_click"] .action-popup-tag {
+  display: none;
+}
+
 .action-popup-title {
   display: flex;
   align-items: center;
@@ -1163,6 +1177,39 @@ body.canva-page .topbar-actions {
   padding: 6px 8px;
   font-size: 13px;
   text-align: left;
+}
+
+.action-wait-click-panel {
+  display: grid;
+  gap: 8px;
+}
+
+.action-wait-click-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.action-wait-click-time {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 8px;
+  align-items: center;
+}
+
+.action-wait-click-time.disabled {
+  opacity: 0.5;
+}
+
+.connector.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.flow-branch-label.disabled {
+  opacity: 0.55;
 }
 
 .flow-zoom {

@@ -53,7 +53,14 @@ type FlowNode = {
   y?: number;
   trigger?: string;
   rules?: Array<{ type?: string; op?: string; tag?: string; keyword?: string; value?: string }>;
-  action?: { type?: string; tag?: string; label?: string };
+  action?: {
+    type?: string;
+    tag?: string;
+    label?: string;
+    with_timeout?: boolean;
+    timeout_value?: number;
+    timeout_unit?: string;
+  };
   body?: string;
   url?: string;
   image?: string;
@@ -117,7 +124,22 @@ type WaitClickState = {
   expected_click_id?: string;
   expected_short?: string;
   expected_target?: string;
+  with_timeout?: boolean;
+  timeout_due_at?: number;
+  timeout_next_node_id?: string;
   created_at: number;
+};
+
+type WaitClickTimeoutJob = {
+  id: string;
+  state_id: string;
+  flow_id: string;
+  flow_name?: string;
+  wa_id: string;
+  next_node_id: string;
+  due_at: number;
+  created_at: number;
+  retry_count?: number;
 };
 
 type FlowLinkMeta = {
@@ -136,6 +158,7 @@ const FLOW_TRIGGER_DEBOUNCE_SEC = 10;
 const FLOW_DELAY_INDEX_KEY = "flow-delay-jobs:index";
 const FLOW_WAIT_REPLY_PREFIX = "flow-wait:";
 const FLOW_WAIT_CLICK_PREFIX = "flow-wait-click:";
+const FLOW_WAIT_CLICK_TIMEOUT_INDEX_KEY = "flow-wait-click-timeout:index";
 const FLOW_LAST_LINK_PREFIX = "flow-last-link:";
 const FLOW_LINK_META_PREFIX = "flow-link-meta:";
 const MAX_DELAY_JOBS_PER_TICK = 20;
@@ -460,6 +483,15 @@ function delaySecondsFromNode(node: FlowNode) {
   return value;
 }
 
+function delaySecondsFromValueUnit(value: unknown, unit: unknown) {
+  const normalizedUnit = parseDelayUnit(unit || "seconds");
+  const normalizedValue = parseDelayValue(value);
+  if (normalizedValue <= 0) return 0;
+  if (normalizedUnit === "hours") return normalizedValue * 3600;
+  if (normalizedUnit === "minutes") return normalizedValue * 60;
+  return normalizedValue;
+}
+
 function formatDelayHuman(value: number, unit: string) {
   if (unit === "hours") return `${value} hora${value === 1 ? "" : "s"}`;
   if (unit === "minutes") return `${value} minuto${value === 1 ? "" : "s"}`;
@@ -476,6 +508,10 @@ function newWaitReplyId() {
 
 function newWaitClickId() {
   return `wait_click:${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+}
+
+function newWaitClickTimeoutJobId() {
+  return `wait_click_timeout:${Date.now()}_${Math.floor(Math.random() * 100000)}`;
 }
 
 function waitReplyKey(waId: string) {
@@ -570,6 +606,41 @@ async function replaceWaitClickStates(kv: KVNamespace, waId: string, states: Wai
   await kv.put(waitClickKey(waId), JSON.stringify(states), {
     expirationTtl: WAIT_CLICK_TTL_SEC,
   });
+}
+
+async function enqueueWaitClickTimeoutJob(kv: KVNamespace, job: WaitClickTimeoutJob) {
+  const current = (await kv.get(FLOW_WAIT_CLICK_TIMEOUT_INDEX_KEY, "json")) as WaitClickTimeoutJob[] | null;
+  const jobs: WaitClickTimeoutJob[] = Array.isArray(current) ? current : [];
+  const deduped = jobs.filter((item) => String(item.id || "") !== String(job.id || ""));
+  deduped.push(job);
+  deduped.sort((a, b) => Number(a.due_at || 0) - Number(b.due_at || 0));
+  if (deduped.length > 5000) {
+    deduped.splice(0, deduped.length - 5000);
+  }
+  await kv.put(FLOW_WAIT_CLICK_TIMEOUT_INDEX_KEY, JSON.stringify(deduped));
+}
+
+async function takeDueWaitClickTimeoutJobs(kv: KVNamespace, nowSec: number, limit: number) {
+  const current = (await kv.get(FLOW_WAIT_CLICK_TIMEOUT_INDEX_KEY, "json")) as WaitClickTimeoutJob[] | null;
+  const jobs: WaitClickTimeoutJob[] = Array.isArray(current) ? current : [];
+  if (!jobs.length) return [] as WaitClickTimeoutJob[];
+
+  const due: WaitClickTimeoutJob[] = [];
+  const pending: WaitClickTimeoutJob[] = [];
+
+  for (const job of jobs) {
+    if (Number(job?.due_at || 0) <= nowSec && due.length < limit) {
+      due.push(job);
+      continue;
+    }
+    pending.push(job);
+  }
+
+  if (due.length) {
+    await kv.put(FLOW_WAIT_CLICK_TIMEOUT_INDEX_KEY, JSON.stringify(pending));
+  }
+
+  return due;
 }
 
 async function enqueueDelayJob(kv: KVNamespace, job: DelayJob) {
@@ -1221,9 +1292,11 @@ async function runFlow(
           continue;
         }
         if (node.action?.type === "wait_click") {
-          const nextAfterWait = findNextEdge(edges, node.id, "default");
-          if (!nextAfterWait) {
-            logNotes.push(`acao:aguardo_click:${node.id}:sem_proximo`);
+          const nextOnClick =
+            findNextEdge(edges, node.id, "yes") ||
+            findNextEdge(edges, node.id, "default");
+          if (!nextOnClick) {
+            logNotes.push(`acao:aguardo_click:${node.id}:sem_proximo_click`);
             currentId = node.id;
             edge = undefined;
             continue;
@@ -1231,7 +1304,7 @@ async function runFlow(
           if (!kv) {
             logNotes.push(`acao:aguardo_click:${node.id}:sem_kv`);
             currentId = node.id;
-            edge = nextAfterWait;
+            edge = nextOnClick;
             continue;
           }
           const expectedShort = String(lastFlowLink || "").trim();
@@ -1243,18 +1316,48 @@ async function runFlow(
             continue;
           }
 
+          const withTimeout = node.action?.with_timeout !== false;
+          const timeoutSeconds = withTimeout
+            ? delaySecondsFromValueUnit(node.action?.timeout_value ?? 30, node.action?.timeout_unit ?? "minutes")
+            : 0;
+          const nextOnTimeout = withTimeout ? findNextEdge(edges, node.id, "no") : undefined;
+          const timeoutEnabled = Boolean(withTimeout && timeoutSeconds > 0 && nextOnTimeout?.to);
+          const nowSec = nowUnix();
+          const stateId = newWaitClickId();
+
           await enqueueWaitClickState(kv, {
-            id: newWaitClickId(),
+            id: stateId,
             flow_id: flow.id,
             flow_name: flow.name,
             wa_id: contact.wa_id,
-            next_node_id: nextAfterWait.to,
+            next_node_id: nextOnClick.to,
             node_id: node.id,
             expected_click_id: expectedClickId,
             expected_short: expectedShort,
+            with_timeout: timeoutEnabled,
+            timeout_due_at: timeoutEnabled ? nowSec + timeoutSeconds : undefined,
+            timeout_next_node_id: timeoutEnabled ? nextOnTimeout?.to : undefined,
             created_at: nowUnix(),
           });
-          logNotes.push(`acao:aguardo_click:${node.id}:ok:${expectedClickId}`);
+          if (timeoutEnabled && nextOnTimeout) {
+            await enqueueWaitClickTimeoutJob(kv, {
+              id: newWaitClickTimeoutJobId(),
+              state_id: stateId,
+              flow_id: flow.id,
+              flow_name: flow.name,
+              wa_id: contact.wa_id,
+              next_node_id: nextOnTimeout.to,
+              due_at: nowSec + timeoutSeconds,
+              created_at: nowSec,
+              retry_count: 0,
+            });
+            logNotes.push(`acao:aguardo_click:${node.id}:ok:${expectedClickId}:prazo:${timeoutSeconds}s`);
+          } else if (withTimeout) {
+            logNotes.push(`acao:aguardo_click:${node.id}:sem_saida_nao_clicou`);
+            logNotes.push(`acao:aguardo_click:${node.id}:ok:${expectedClickId}:sem_prazo`);
+          } else {
+            logNotes.push(`acao:aguardo_click:${node.id}:ok:${expectedClickId}:sem_prazo`);
+          }
           currentId = node.id;
           edge = undefined;
           continue;
@@ -1623,6 +1726,140 @@ export async function processWaitClickStates(
   return { matched: matchedStates.length, executed, errors };
 }
 
+async function processDueWaitClickTimeoutJobs(
+  env: Env,
+  kv: KVNamespace,
+  flows: Flow[],
+  logs: FlowLog[],
+  limit: number,
+) {
+  const dueJobs = await takeDueWaitClickTimeoutJobs(kv, nowUnix(), limit);
+  if (!dueJobs.length) return { processed: 0, errors: 0 };
+
+  let processed = 0;
+  let errors = 0;
+
+  for (const job of dueJobs) {
+    let claimed = false;
+    try {
+      claimed = await tryClaimDelayJob(env, kv, `wait_click_timeout:${job.id}`);
+      if (!claimed) continue;
+
+      const waitStates = await listWaitClickStates(kv, job.wa_id);
+      const state = waitStates.find((item) => String(item.id || "") === String(job.state_id || ""));
+      if (!state) continue;
+
+      const timeoutNextNodeId = String(state.timeout_next_node_id || job.next_node_id || "").trim();
+      if (!timeoutNextNodeId) {
+        await replaceWaitClickStates(
+          kv,
+          job.wa_id,
+          waitStates.filter((item) => String(item.id || "") !== String(state.id || "")),
+        );
+        appendFlowLog(logs, {
+          ts: Date.now(),
+          wa_id: job.wa_id,
+          flow_id: state.flow_id,
+          flow_name: state.flow_name || "(aguardo click sem fluxo)",
+          trigger: "Aguardar click (nao clicou)",
+          notes: [`wait_click_timeout:${state.id}:sem_proximo`],
+        });
+        continue;
+      }
+
+      const pendingStates = waitStates.filter((item) => String(item.id || "") !== String(state.id || ""));
+      await replaceWaitClickStates(kv, job.wa_id, pendingStates);
+
+      const flow = flows.find((item) => item.id === state.flow_id && item.enabled !== false);
+      const storedContact = (await kv.get(`contact:${job.wa_id}`, "json")) as Contact | null;
+      const contact: Contact = storedContact
+        ? { ...storedContact, tags: Array.isArray(storedContact.tags) ? storedContact.tags : [] }
+        : { wa_id: job.wa_id, tags: [] };
+      const tagsBefore = [...(contact.tags || [])];
+      const notes: string[] = [`wait_click_timeout:${state.id}:resume`];
+
+      if (!flow) {
+        notes.push("flow:nao_encontrado");
+        appendFlowLog(logs, {
+          ts: Date.now(),
+          wa_id: job.wa_id,
+          flow_id: state.flow_id,
+          flow_name: state.flow_name || "(aguardo click sem fluxo)",
+          trigger: "Aguardar click (nao clicou)",
+          tags_before: tagsBefore,
+          tags_after: [...(contact.tags || [])],
+          notes,
+        });
+      } else {
+        const executed = await runFlow(
+          env,
+          flow,
+          contact,
+          notes,
+          "",
+          timeoutNextNodeId,
+        );
+        if (!executed) notes.push("resume:sem_execucao");
+        appendFlowLog(logs, {
+          ts: Date.now(),
+          wa_id: job.wa_id,
+          flow_id: flow.id,
+          flow_name: flow.name,
+          trigger: "Aguardar click (nao clicou)",
+          tags_before: tagsBefore,
+          tags_after: [...(contact.tags || [])],
+          notes,
+        });
+      }
+
+      const contactIndex = (await kv.get("contacts:index", "json")) as Contact[] | null;
+      const contactList: Contact[] = Array.isArray(contactIndex) ? contactIndex : [];
+      const merged = upsertContactList(contactList, contact);
+      await kv.put("contacts:index", JSON.stringify(contactList));
+      await kv.put(`contact:${contact.wa_id}`, JSON.stringify(merged));
+      try {
+        await dbUpsertContact(env, merged);
+      } catch {
+        // keep timeout processor resilient if D1 contact upsert fails
+      }
+
+      processed += 1;
+    } catch (err) {
+      errors += 1;
+      const messageText = err instanceof Error ? err.message : String(err || "erro");
+      const retryCount = Number(job.retry_count || 0) + 1;
+      if (retryCount <= 3) {
+        if (claimed) {
+          try {
+            await releaseDelayJobClaim(env, kv, `wait_click_timeout:${job.id}`);
+          } catch {
+            // no-op
+          }
+        }
+        await enqueueWaitClickTimeoutJob(kv, {
+          ...job,
+          retry_count: retryCount,
+          due_at: nowUnix() + 15,
+        });
+      }
+      appendFlowLog(logs, {
+        ts: Date.now(),
+        wa_id: job.wa_id,
+        flow_id: job.flow_id,
+        flow_name: job.flow_name || "(erro aguardo click)",
+        trigger: "Aguardar click (nao clicou)",
+        notes: [
+          `job:${job.id}`,
+          `erro:${messageText.slice(0, 180)}`,
+          retryCount <= 3 ? `retry:${retryCount}` : "retry:max",
+        ],
+      });
+    }
+  }
+
+  return { processed, errors };
+}
+
 export async function processDueDelayJobs(env: Env, limit = MAX_DELAY_JOBS_PER_TICK) {
   const kv = env.BOTZAP_KV;
   if (!kv) return { processed: 0, errors: 0 };
@@ -1631,7 +1868,6 @@ export async function processDueDelayJobs(env: Env, limit = MAX_DELAY_JOBS_PER_T
 
   const safeLimit = Math.max(1, Math.min(MAX_DELAY_JOBS_PER_TICK, Number(limit) || MAX_DELAY_JOBS_PER_TICK));
   const dueJobs = await takeDueDelayJobs(kv, nowUnix(), safeLimit);
-  if (!dueJobs.length) return { processed: 0, errors: 0 };
 
   const flowIndex = (await kv.get("flows:index", "json")) as Flow[] | null;
   const flows: Flow[] = Array.isArray(flowIndex) ? flowIndex : [];
@@ -1756,6 +1992,20 @@ export async function processDueDelayJobs(env: Env, limit = MAX_DELAY_JOBS_PER_T
         ],
       });
     }
+  }
+
+  const waitClickTimeoutResult = await processDueWaitClickTimeoutJobs(
+    env,
+    kv,
+    flows,
+    logs,
+    safeLimit,
+  );
+  processed += Number(waitClickTimeoutResult.processed || 0);
+  errors += Number(waitClickTimeoutResult.errors || 0);
+
+  if (!dueJobs.length && processed === 0 && errors === 0) {
+    return { processed: 0, errors: 0 };
   }
 
   if (logs.length > FLOW_LOG_CACHE_LIMIT) logs.splice(FLOW_LOG_CACHE_LIMIT);
