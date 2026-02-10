@@ -1965,10 +1965,44 @@ body.canva-page .topbar-actions {
   box-shadow: 0 0 0 2px rgba(37, 211, 102, 0.4);
 }
 
-.flow-node-actions .connector.out {
+.flow-node-actions .connector.out:not(.yes):not(.no) {
   top: auto;
   bottom: 16px;
   transform: none;
+}
+
+.flow-node-actions.flow-node-actions-wait-click {
+  min-height: 250px;
+}
+
+.flow-node-actions.flow-node-actions-wait-click .flow-node-body {
+  padding-bottom: 78px;
+}
+
+.flow-node-actions.flow-node-actions-wait-click .flow-node-footer {
+  display: none;
+}
+
+.flow-node-actions.flow-node-actions-wait-click .connector.out.yes {
+  bottom: 58px;
+  transform: none;
+}
+
+.flow-node-actions.flow-node-actions-wait-click .connector.out.no {
+  bottom: 22px;
+  transform: none;
+}
+
+.flow-node-actions.flow-node-actions-wait-click .flow-branch-label {
+  right: 30px;
+}
+
+.flow-node-actions.flow-node-actions-wait-click .flow-branch-label.yes {
+  bottom: 62px;
+}
+
+.flow-node-actions.flow-node-actions-wait-click .flow-branch-label.no {
+  bottom: 26px;
 }
 
 .flow-condition-edit {

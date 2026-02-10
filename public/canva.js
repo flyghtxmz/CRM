@@ -1473,13 +1473,12 @@ function renderActionNode(node) {
 
   const isWaitClickAction = node.action?.type === "wait_click";
   const waitClickWithTimeout = isWaitClickAction ? node.action?.with_timeout !== false : false;
+  if (isWaitClickAction) {
+    el.classList.add("flow-node-actions-wait-click");
+  }
   const footer = document.createElement("div");
   footer.className = "flow-node-footer";
-  footer.textContent = isWaitClickAction
-    ? waitClickWithTimeout
-      ? "Clicou / Nao clicou"
-      : "Clicou"
-    : "Proximo Passo";
+  footer.textContent = isWaitClickAction ? "" : "Proximo Passo";
 
   const connectorIn = document.createElement("div");
   connectorIn.className = "connector in";
