@@ -328,6 +328,9 @@ function formatAction(action) {
   if (action.type === "tag") {
     return `Adicionar tag: ${action.tag || ""}`.trim();
   }
+  if (action.type === "tag_remove") {
+    return `Remover tag: ${action.tag || ""}`.trim();
+  }
   if (action.type === "wait_reply") {
     return "Aguardar resposta do usuario";
   }
@@ -1081,10 +1084,20 @@ function renderActionNode(node) {
   tagOption.type = "button";
   tagOption.textContent = "Adicionar tag";
   tagOption.addEventListener("click", () => {
+    selectedActionMode = "add";
     renderTagList();
     popup.dataset.view = "tag";
   });
   rootView.appendChild(tagOption);
+  const removeTagOption = document.createElement("button");
+  removeTagOption.type = "button";
+  removeTagOption.textContent = "Remover tag";
+  removeTagOption.addEventListener("click", () => {
+    selectedActionMode = "remove";
+    renderTagList();
+    popup.dataset.view = "tag";
+  });
+  rootView.appendChild(removeTagOption);
   const waitOption = document.createElement("button");
   waitOption.type = "button";
   waitOption.textContent = "Aguardar resposta";
@@ -1124,7 +1137,9 @@ function renderActionNode(node) {
   createTag.type = "button";
   createTag.className = "ghost";
   createTag.textContent = "Nova tag";
+  let selectedActionMode = "add";
   createTag.addEventListener("click", () => {
+    if (selectedActionMode === "remove") return;
     const value = window.prompt("Nome da nova tag");
     if (!value) return;
     const name = value.trim();
@@ -1141,12 +1156,17 @@ function renderActionNode(node) {
 
   const renderTagList = () => {
     tagList.innerHTML = "";
+    tagTitle.textContent = selectedActionMode === "remove" ? "Remover tag" : "Adicionar tag";
+    createTag.style.display = selectedActionMode === "remove" ? "none" : "inline-flex";
     const term = search.value.trim().toLowerCase();
     const tags = state.tags.filter((tag) => tag.toLowerCase().includes(term));
     if (!tags.length) {
       const empty = document.createElement("div");
       empty.className = "hint";
-      empty.textContent = "Nenhuma tag criada.";
+      empty.textContent =
+        selectedActionMode === "remove"
+          ? "Nenhuma tag disponivel para remover."
+          : "Nenhuma tag criada.";
       tagList.appendChild(empty);
       return;
     }
@@ -1156,7 +1176,10 @@ function renderActionNode(node) {
       item.className = "action-tag-item";
       item.textContent = tag;
       item.addEventListener("click", () => {
-        node.action = { type: "tag", tag };
+        node.action =
+          selectedActionMode === "remove"
+            ? { type: "tag_remove", tag }
+            : { type: "tag", tag };
         popup.classList.remove("open");
         renderAll();
         scheduleAutoSave();

@@ -536,10 +536,17 @@ function evaluateCondition(node: FlowNode, contact: Contact, inboundText = "") {
 }
 
 function applyAction(node: FlowNode, contact: Contact) {
-  if (!node.action || node.action.type !== "tag" || !node.action.tag) return;
+  if (!node.action || !node.action.type || !node.action.tag) return;
   const tags = new Set(contact.tags || []);
-  tags.add(node.action.tag);
-  contact.tags = Array.from(tags);
+  if (node.action.type === "tag") {
+    tags.add(node.action.tag);
+    contact.tags = Array.from(tags);
+    return;
+  }
+  if (node.action.type === "tag_remove") {
+    tags.delete(node.action.tag);
+    contact.tags = Array.from(tags);
+  }
 }
 
 function findNextEdge(edges: FlowEdge[], from: string, branch: string) {
@@ -946,6 +953,8 @@ async function runFlow(
         applyAction(node, contact);
         if (node.action?.type === "tag") {
           logNotes.push(`acao:tag:${node.action.tag || ""}`);
+        } else if (node.action?.type === "tag_remove") {
+          logNotes.push(`acao:tag_remove:${node.action.tag || ""}`);
         }
       }
 
