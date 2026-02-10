@@ -1410,6 +1410,11 @@ body.canva-page .topbar-actions {
   font-size: 10px;
 }
 
+.flow-url-vars-hint {
+  font-size: 11px;
+  color: var(--muted);
+}
+
 
 .flow-node-header {
   display: flex;

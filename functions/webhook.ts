@@ -49,6 +49,8 @@ type FlowEdge = {
 type FlowNode = {
   id: string;
   type: string;
+  x?: number;
+  y?: number;
   trigger?: string;
   rules?: Array<{ type?: string; op?: string; tag?: string; keyword?: string; value?: string }>;
   action?: { type?: string; tag?: string; label?: string };
@@ -200,11 +202,47 @@ function uniqueTags(tags: string[]) {
   return output;
 }
 
-function applyVars(input: string, contact: Contact) {
+function toFlowToken(value: string, fallback = "fluxo") {
+  const cleaned = String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return cleaned || fallback;
+}
+
+function toBlockToken(blockLabel: string) {
+  const match = String(blockLabel || "").match(/(\d+)/);
+  if (!match) return "bl0";
+  return `bl${match[1]}`;
+}
+
+function applyVars(
+  input: string,
+  contact: Contact,
+  ctx?: { bloco?: string; fluxo?: string },
+) {
   if (!input) return "";
-  const waId = contact.wa_id || "";
-  const encoded = encodeURIComponent(waId);
-  return input.replace(/\{\{\s*(wa_id|phone|numero)\s*\}\}|\{(wa_id|phone|numero)\}/gi, encoded);
+  const waId = String(contact.wa_id || "");
+  const bloco = String(ctx?.bloco || "bl0");
+  const fluxo = String(ctx?.fluxo || "fluxo");
+  const vars: Record<string, string> = {
+    wa_id: encodeURIComponent(waId),
+    phone: encodeURIComponent(waId),
+    numero: encodeURIComponent(waId),
+    bloco: encodeURIComponent(bloco),
+    block: encodeURIComponent(bloco),
+    bl: encodeURIComponent(bloco),
+    fluxo: encodeURIComponent(fluxo),
+    flow: encodeURIComponent(fluxo),
+  };
+
+  return input.replace(/\{\{\s*([a-z_]+)\s*\}\}|\{([a-z_]+)\}/gi, (full, a, b) => {
+    const key = String(a || b || "").toLowerCase();
+    if (!key) return full;
+    return Object.prototype.hasOwnProperty.call(vars, key) ? vars[key] : full;
+  });
 }
 
 function shortenerBase(env: Env) {
@@ -285,24 +323,99 @@ function isMessageNodeType(type: string) {
   );
 }
 
-function messageBlockLabel(nodes: FlowNode[], nodeId: string) {
-  let count = 0;
-  for (const node of nodes) {
-    if (!isMessageNodeType(String(node?.type || ""))) continue;
-    count += 1;
-    if (String(node.id || "") === String(nodeId || "")) {
-      return `Bloco ${count}`;
+function nodePositionSort(a: FlowNode, b: FlowNode) {
+  const ay = Number(a?.y || 0);
+  const by = Number(b?.y || 0);
+  if (ay !== by) return ay - by;
+  const ax = Number(a?.x || 0);
+  const bx = Number(b?.x || 0);
+  if (ax !== bx) return ax - bx;
+  return String(a?.id || "").localeCompare(String(b?.id || ""));
+}
+
+function edgeBranchPriority(edge: FlowEdge) {
+  const branch = String(edge?.branch || "default").toLowerCase();
+  if (branch === "default") return 0;
+  if (branch === "yes") return 1;
+  if (branch === "no") return 2;
+  return 3;
+}
+
+function computeMessageBlockOrderMap(nodes: FlowNode[], edges: FlowEdge[]) {
+  const order = new Map<string, number>();
+  const nodesById = new Map(nodes.map((node) => [String(node.id || ""), node]));
+  const outgoing = new Map<string, FlowEdge[]>();
+
+  edges.forEach((edge) => {
+    const from = String(edge?.from || "");
+    if (!from) return;
+    const list = outgoing.get(from) || [];
+    list.push(edge);
+    outgoing.set(from, list);
+  });
+
+  const startNodes = nodes
+    .filter((node) => String(node?.type || "") === "start")
+    .sort(nodePositionSort);
+
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  let counter = 0;
+
+  const walk = (nodeId: string) => {
+    const id = String(nodeId || "");
+    if (!id || visiting.has(id) || visited.has(id)) return;
+    const node = nodesById.get(id);
+    if (!node) return;
+
+    visiting.add(id);
+    if (isMessageNodeType(String(node.type || "")) && !order.has(id)) {
+      counter += 1;
+      order.set(id, counter);
     }
+
+    const children = [...(outgoing.get(id) || [])].sort((a, b) => {
+      const pa = edgeBranchPriority(a);
+      const pb = edgeBranchPriority(b);
+      if (pa !== pb) return pa - pb;
+      const na = nodesById.get(String(a?.to || "")) || ({ id: String(a?.to || ""), x: 0, y: 0, type: "" } as FlowNode);
+      const nb = nodesById.get(String(b?.to || "")) || ({ id: String(b?.to || ""), x: 0, y: 0, type: "" } as FlowNode);
+      return nodePositionSort(na, nb);
+    });
+    children.forEach((edge) => walk(String(edge?.to || "")));
+
+    visiting.delete(id);
+    visited.add(id);
+  };
+
+  if (startNodes.length) {
+    startNodes.forEach((node) => walk(String(node.id || "")));
   }
-  return "";
+
+  const remaining = nodes
+    .filter((node) => isMessageNodeType(String(node?.type || "")) && !order.has(String(node.id || "")))
+    .sort(nodePositionSort);
+
+  remaining.forEach((node) => {
+    counter += 1;
+    order.set(String(node.id || ""), counter);
+  });
+
+  return order;
+}
+
+function messageBlockLabel(orderMap: Map<string, number>, nodeId: string) {
+  const index = Number(orderMap.get(String(nodeId || "")) || 0);
+  if (!index) return "";
+  return `Bloco ${index}`;
 }
 
 async function saveFlowLinkMeta(
   kv: KVNamespace,
   flow: Flow,
   contact: Contact,
-  nodes: FlowNode[],
   node: FlowNode,
+  blockLabel: string,
   shortUrl: string,
   targetUrl: string,
 ) {
@@ -314,7 +427,7 @@ async function saveFlowLinkMeta(
     flow_id: flow.id,
     flow_name: flow.name,
     node_id: node.id,
-    block_name: messageBlockLabel(nodes, node.id),
+    block_name: blockLabel || undefined,
     short_id: shortId,
     short_url: shortUrl,
     target_url: targetUrl || undefined,
@@ -1034,6 +1147,8 @@ async function runFlow(
   const nodes = Array.isArray(flow.data?.nodes) ? flow.data?.nodes : [];
   const edges = Array.isArray(flow.data?.edges) ? flow.data?.edges : [];
   if (!nodes.length || !edges.length) return false;
+  const messageOrderMap = computeMessageBlockOrderMap(nodes, edges);
+  const flowVarToken = toFlowToken(String(flow.name || flow.id || "fluxo"), "fluxo");
   let lastFlowLink = kv
     ? String((await kv.get(flowLastLinkKey(contact.wa_id))) || "").trim()
     : "";
@@ -1205,9 +1320,14 @@ async function runFlow(
 
       if (node.type === "message" || node.type === "message_link" || node.type === "message_short" || node.type === "message_image") {
         const body = String(node.body || "").trim();
+        const blockLabel = messageBlockLabel(messageOrderMap, node.id);
+        const blockVarToken = toBlockToken(blockLabel);
         let url = "";
         if (node.type !== "message") {
-          url = applyVars(String(node.url || "").trim(), contact);
+          url = applyVars(String(node.url || "").trim(), contact, {
+            bloco: blockVarToken,
+            fluxo: flowVarToken,
+          });
         }
         let image = "";
         if (node.type === "message_short" || node.type === "message_image") {
@@ -1262,7 +1382,7 @@ async function runFlow(
                   await kv.put(flowLastLinkKey(contact.wa_id), lastFlowLink, {
                     expirationTtl: FLOW_LAST_LINK_TTL_SEC,
                   });
-                  await saveFlowLinkMeta(kv, flow, contact, nodes, node, finalUrl, url);
+                  await saveFlowLinkMeta(kv, flow, contact, node, blockLabel, finalUrl, url);
                 }
               }
               if (kv && localId) {
@@ -1302,7 +1422,7 @@ async function runFlow(
                 await kv.put(flowLastLinkKey(contact.wa_id), lastFlowLink, {
                   expirationTtl: FLOW_LAST_LINK_TTL_SEC,
                 });
-                await saveFlowLinkMeta(kv, flow, contact, nodes, node, finalUrl, url);
+                await saveFlowLinkMeta(kv, flow, contact, node, blockLabel, finalUrl, url);
               }
             }
             if (kv && localId) {
