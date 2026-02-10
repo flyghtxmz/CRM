@@ -118,11 +118,24 @@ type WaitClickState = {
   created_at: number;
 };
 
+type FlowLinkMeta = {
+  wa_id: string;
+  flow_id?: string;
+  flow_name?: string;
+  node_id?: string;
+  block_name?: string;
+  short_id: string;
+  short_url: string;
+  target_url?: string;
+  sent_at: number;
+};
+
 const FLOW_TRIGGER_DEBOUNCE_SEC = 10;
 const FLOW_DELAY_INDEX_KEY = "flow-delay-jobs:index";
 const FLOW_WAIT_REPLY_PREFIX = "flow-wait:";
 const FLOW_WAIT_CLICK_PREFIX = "flow-wait-click:";
 const FLOW_LAST_LINK_PREFIX = "flow-last-link:";
+const FLOW_LINK_META_PREFIX = "flow-link-meta:";
 const MAX_DELAY_JOBS_PER_TICK = 20;
 const THREAD_CACHE_LIMIT = 30;
 const CONTACT_CACHE_LIMIT = 120;
@@ -136,6 +149,7 @@ const DELAY_JOB_CLEANUP_LAST_KEY = "flow-delay-claims:last-cleanup";
 const WAIT_REPLY_TTL_SEC = 14 * 24 * 3600;
 const WAIT_CLICK_TTL_SEC = 14 * 24 * 3600;
 const FLOW_LAST_LINK_TTL_SEC = 30 * 24 * 3600;
+const FLOW_LINK_META_TTL_SEC = 30 * 24 * 3600;
 
 
 
@@ -256,6 +270,60 @@ function extractShortSlug(rawLink: string) {
 
 function flowLastLinkKey(waId: string) {
   return `${FLOW_LAST_LINK_PREFIX}${waId}`;
+}
+
+function flowLinkMetaKey(waId: string, shortId: string) {
+  return `${FLOW_LINK_META_PREFIX}${waId}:${shortId}`;
+}
+
+function isMessageNodeType(type: string) {
+  return (
+    type === "message" ||
+    type === "message_link" ||
+    type === "message_short" ||
+    type === "message_image"
+  );
+}
+
+function messageBlockLabel(nodes: FlowNode[], nodeId: string) {
+  let count = 0;
+  for (const node of nodes) {
+    if (!isMessageNodeType(String(node?.type || ""))) continue;
+    count += 1;
+    if (String(node.id || "") === String(nodeId || "")) {
+      return `Bloco ${count}`;
+    }
+  }
+  return "";
+}
+
+async function saveFlowLinkMeta(
+  kv: KVNamespace,
+  flow: Flow,
+  contact: Contact,
+  nodes: FlowNode[],
+  node: FlowNode,
+  shortUrl: string,
+  targetUrl: string,
+) {
+  const shortId = extractShortSlug(shortUrl);
+  if (!shortId) return;
+
+  const meta: FlowLinkMeta = {
+    wa_id: contact.wa_id,
+    flow_id: flow.id,
+    flow_name: flow.name,
+    node_id: node.id,
+    block_name: messageBlockLabel(nodes, node.id),
+    short_id: shortId,
+    short_url: shortUrl,
+    target_url: targetUrl || undefined,
+    sent_at: nowUnix(),
+  };
+
+  await kv.put(flowLinkMetaKey(contact.wa_id, shortId), JSON.stringify(meta), {
+    expirationTtl: FLOW_LINK_META_TTL_SEC,
+  });
 }
 function parseDelayUnit(value: unknown) {
   const unit = String(value || "").toLowerCase();
@@ -621,15 +689,15 @@ function evaluateCondition(node: FlowNode, contact: Contact, inboundText = "") {
 
 function applyAction(node: FlowNode, contact: Contact) {
   if (!node.action || !node.action.type || !node.action.tag) return;
-  const tags = new Set(contact.tags || []);
+  const tags = new Set((contact.tags || []).map((tag) => String(tag || "").trim()).filter(Boolean));
   if (node.action.type === "tag") {
-    tags.add(node.action.tag);
+    tags.add(String(node.action.tag || "").trim());
     contact.tags = Array.from(tags);
     return;
   }
   if (node.action.type === "tag_remove") {
-    tags.delete(node.action.tag);
-    contact.tags = Array.from(tags);
+    const target = normalizeSearchText(node.action.tag || "");
+    contact.tags = Array.from(tags).filter((tag) => normalizeSearchText(tag) !== target);
   }
 }
 
@@ -1194,6 +1262,7 @@ async function runFlow(
                   await kv.put(flowLastLinkKey(contact.wa_id), lastFlowLink, {
                     expirationTtl: FLOW_LAST_LINK_TTL_SEC,
                   });
+                  await saveFlowLinkMeta(kv, flow, contact, nodes, node, finalUrl, url);
                 }
               }
               if (kv && localId) {
@@ -1233,6 +1302,7 @@ async function runFlow(
                 await kv.put(flowLastLinkKey(contact.wa_id), lastFlowLink, {
                   expirationTtl: FLOW_LAST_LINK_TTL_SEC,
                 });
+                await saveFlowLinkMeta(kv, flow, contact, nodes, node, finalUrl, url);
               }
             }
             if (kv && localId) {

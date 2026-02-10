@@ -68,6 +68,7 @@ const blockOptions = [
   { type: "condition", label: "Condicao" },
   { type: "action", label: "Acoes" },
 ];
+const MESSAGE_NODE_TYPES = new Set(["message", "message_link", "message_short", "message_image"]);
 
 function makeId(prefix) {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
@@ -237,6 +238,7 @@ async function loadFlow() {
       }
     }
   });
+  state.tags = uniqueStrings([...(Array.isArray(state.tags) ? state.tags : []), ...collectTagsFromNodes(state.nodes)]);
 
   if (!state.nodes.length) {
     const seeded = defaultData();
@@ -340,6 +342,35 @@ function formatAction(action) {
   return action.label || "";
 }
 
+function uniqueStrings(list) {
+  const seen = new Set();
+  const output = [];
+  list.forEach((value) => {
+    const item = String(value || "").trim();
+    if (!item || seen.has(item)) return;
+    seen.add(item);
+    output.push(item);
+  });
+  return output;
+}
+
+function collectTagsFromNodes(nodes) {
+  const tags = [];
+  nodes.forEach((node) => {
+    if (node?.action?.type === "tag" || node?.action?.type === "tag_remove") {
+      tags.push(node.action.tag);
+    }
+    if (node?.type === "condition" && Array.isArray(node.rules)) {
+      node.rules.forEach((rule) => {
+        if (rule?.type === "tag") {
+          tags.push(rule.tag);
+        }
+      });
+    }
+  });
+  return uniqueStrings(tags);
+}
+
 function normalizeDelayUnit(unit) {
   const raw = String(unit || "").toLowerCase();
   if (raw === "hours" || raw.startsWith("hora")) return "hours";
@@ -359,6 +390,46 @@ function formatDelaySummary(value, unit) {
   if (normalizedUnit === "hours") return `${amount} hora${amount === 1 ? "" : "s"}`;
   if (normalizedUnit === "minutes") return `${amount} minuto${amount === 1 ? "" : "s"}`;
   return `${amount} segundo${amount === 1 ? "" : "s"}`;
+}
+
+function messageBlockNameForNode(nodeId) {
+  let count = 0;
+  state.nodes.forEach((node) => {
+    if (!MESSAGE_NODE_TYPES.has(String(node?.type || ""))) return;
+    count += 1;
+  });
+  if (!count) return "";
+
+  let index = 0;
+  for (const node of state.nodes) {
+    if (!MESSAGE_NODE_TYPES.has(String(node?.type || ""))) continue;
+    index += 1;
+    if (String(node.id || "") === String(nodeId || "")) {
+      return `Bloco ${index}`;
+    }
+  }
+  return "";
+}
+
+function appendMessageHeaderTitle(header, node, fallbackTitle) {
+  const titleWrap = document.createElement("div");
+  titleWrap.className = "flow-node-title-wrap";
+
+  const blockLabel = document.createElement("div");
+  blockLabel.className = "flow-node-block-label";
+  blockLabel.textContent = messageBlockNameForNode(node.id) || "Bloco";
+
+  const title = document.createElement("input");
+  title.type = "text";
+  title.value = node.title || fallbackTitle;
+  title.addEventListener("change", () => {
+    node.title = title.value;
+    scheduleAutoSave();
+  });
+
+  titleWrap.appendChild(blockLabel);
+  titleWrap.appendChild(title);
+  header.appendChild(titleWrap);
 }
 
 function clampZoom(value) {
@@ -1279,14 +1350,7 @@ function renderLinkMessageNode(node) {
 
   const header = document.createElement("div");
   header.className = "flow-node-header";
-  const title = document.createElement("input");
-  title.type = "text";
-  title.value = node.title || (isShort ? "Mensagem com link curto" : "Mensagem com link");
-  title.addEventListener("change", () => {
-    node.title = title.value;
-    scheduleAutoSave();
-  });
-  header.appendChild(title);
+  appendMessageHeaderTitle(header, node, isShort ? "Mensagem com link curto" : "Mensagem com link");
   const deleteBtn = createDeleteButton(node);
   if (deleteBtn) header.appendChild(deleteBtn);
 
@@ -1569,14 +1633,7 @@ function renderImageMessageNode(node) {
 
   const header = document.createElement("div");
   header.className = "flow-node-header";
-  const title = document.createElement("input");
-  title.type = "text";
-  title.value = node.title || "Mensagem com imagem + link";
-  title.addEventListener("change", () => {
-    node.title = title.value;
-    scheduleAutoSave();
-  });
-  header.appendChild(title);
+  appendMessageHeaderTitle(header, node, "Mensagem com imagem + link");
   const deleteBtn = createDeleteButton(node);
   if (deleteBtn) header.appendChild(deleteBtn);
 
@@ -1783,14 +1840,18 @@ function renderNodes() {
 
     const header = document.createElement("div");
     header.className = "flow-node-header";
-    const title = document.createElement("input");
-    title.type = "text";
-    title.value = node.title || "Bloco";
-    title.addEventListener("change", () => {
-      node.title = title.value;
-      scheduleAutoSave();
-    });
-    header.appendChild(title);
+    if (node.type === "message") {
+      appendMessageHeaderTitle(header, node, "Mensagem");
+    } else {
+      const title = document.createElement("input");
+      title.type = "text";
+      title.value = node.title || "Bloco";
+      title.addEventListener("change", () => {
+        node.title = title.value;
+        scheduleAutoSave();
+      });
+      header.appendChild(title);
+    }
     const deleteBtn = createDeleteButton(node);
     if (deleteBtn) header.appendChild(deleteBtn);
 

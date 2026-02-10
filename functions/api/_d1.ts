@@ -51,6 +51,43 @@ export type DbFlowLog = {
   repeat_count?: number;
 };
 
+export type DbLinkClick = {
+  id?: string;
+  ts: number;
+  wa_id: string;
+  click_id?: string;
+  short_url?: string;
+  target_url?: string;
+  device_type?: string;
+  flow_id?: string;
+  flow_name?: string;
+  node_id?: string;
+  block_name?: string;
+  shared_click?: number;
+};
+
+export type DbLinkClickFlowSummary = {
+  flow_id?: string;
+  flow_name?: string;
+  clicks: number;
+};
+
+export type DbLinkClickBlockSummary = {
+  flow_id?: string;
+  flow_name?: string;
+  node_id?: string;
+  block_name?: string;
+  clicks: number;
+};
+
+export type DbLinkClickSummary = {
+  total_clicks: number;
+  unique_contacts: number;
+  shared_clicks: number;
+  by_flow: DbLinkClickFlowSummary[];
+  by_block: DbLinkClickBlockSummary[];
+};
+
 type RowMap = Record<string, unknown>;
 
 function db(env: Env) {
@@ -508,6 +545,222 @@ function isMissingTableError(err: unknown, tableName: string) {
   const text = err instanceof Error ? err.message : String(err || "");
   const normalized = text.toLowerCase();
   return normalized.includes("no such table") && normalized.includes(tableName.toLowerCase());
+}
+
+async function ensureLinkClicksTable(env: Env) {
+  const database = db(env);
+  if (!database) return;
+
+  await database
+    .prepare(
+      `CREATE TABLE IF NOT EXISTS link_clicks (
+        id TEXT PRIMARY KEY,
+        ts INTEGER NOT NULL,
+        wa_id TEXT NOT NULL,
+        click_id TEXT,
+        short_url TEXT,
+        target_url TEXT,
+        device_type TEXT,
+        flow_id TEXT,
+        flow_name TEXT,
+        node_id TEXT,
+        block_name TEXT,
+        shared_click INTEGER NOT NULL DEFAULT 0
+      )`,
+    )
+    .run();
+  await database
+    .prepare(`CREATE INDEX IF NOT EXISTS idx_link_clicks_ts ON link_clicks(ts DESC)`)
+    .run();
+  await database
+    .prepare(`CREATE INDEX IF NOT EXISTS idx_link_clicks_wa_id ON link_clicks(wa_id, ts DESC)`)
+    .run();
+  await database
+    .prepare(`CREATE INDEX IF NOT EXISTS idx_link_clicks_flow ON link_clicks(flow_id, ts DESC)`)
+    .run();
+}
+
+export async function dbInsertLinkClick(env: Env, click: DbLinkClick) {
+  const database = db(env);
+  if (!database) return;
+
+  const id = asString(click.id) || `click:${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+  const ts = toInt(click.ts, Date.now());
+  const shared = Math.max(0, Math.min(1, toInt(click.shared_click, 0)));
+
+  try {
+    await database
+      .prepare(
+        `INSERT INTO link_clicks (
+          id, ts, wa_id, click_id, short_url, target_url, device_type,
+          flow_id, flow_name, node_id, block_name, shared_click
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        id,
+        ts,
+        asString(click.wa_id),
+        asString(click.click_id) || null,
+        asString(click.short_url) || null,
+        asString(click.target_url) || null,
+        asString(click.device_type) || null,
+        asString(click.flow_id) || null,
+        asString(click.flow_name) || null,
+        asString(click.node_id) || null,
+        asString(click.block_name) || null,
+        shared,
+      )
+      .run();
+  } catch (err) {
+    if (!isMissingTableError(err, "link_clicks")) throw err;
+    await ensureLinkClicksTable(env);
+    await database
+      .prepare(
+        `INSERT INTO link_clicks (
+          id, ts, wa_id, click_id, short_url, target_url, device_type,
+          flow_id, flow_name, node_id, block_name, shared_click
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        id,
+        ts,
+        asString(click.wa_id),
+        asString(click.click_id) || null,
+        asString(click.short_url) || null,
+        asString(click.target_url) || null,
+        asString(click.device_type) || null,
+        asString(click.flow_id) || null,
+        asString(click.flow_name) || null,
+        asString(click.node_id) || null,
+        asString(click.block_name) || null,
+        shared,
+      )
+      .run();
+  }
+}
+
+export async function dbGetLinkClicks(env: Env, limit = 200) {
+  const database = db(env);
+  if (!database) return [] as DbLinkClick[];
+
+  const safeLimit = Math.max(1, Math.min(2000, toInt(limit, 200)));
+  try {
+    const result = await database
+      .prepare(
+        `SELECT id, ts, wa_id, click_id, short_url, target_url, device_type,
+          flow_id, flow_name, node_id, block_name, shared_click
+        FROM link_clicks
+        ORDER BY ts DESC
+        LIMIT ?`,
+      )
+      .bind(safeLimit)
+      .all<RowMap>();
+
+    const rows = Array.isArray(result.results) ? result.results : [];
+    return rows.map((row) => ({
+      id: asString(row.id) || undefined,
+      ts: toInt(row.ts, Date.now()),
+      wa_id: asString(row.wa_id),
+      click_id: asString(row.click_id) || undefined,
+      short_url: asString(row.short_url) || undefined,
+      target_url: asString(row.target_url) || undefined,
+      device_type: asString(row.device_type) || undefined,
+      flow_id: asString(row.flow_id) || undefined,
+      flow_name: asString(row.flow_name) || undefined,
+      node_id: asString(row.node_id) || undefined,
+      block_name: asString(row.block_name) || undefined,
+      shared_click: toInt(row.shared_click, 0),
+    } as DbLinkClick));
+  } catch (err) {
+    if (!isMissingTableError(err, "link_clicks")) throw err;
+    return [] as DbLinkClick[];
+  }
+}
+
+export async function dbGetLinkClicksSummary(env: Env, top = 20) {
+  const database = db(env);
+  if (!database) {
+    return {
+      total_clicks: 0,
+      unique_contacts: 0,
+      shared_clicks: 0,
+      by_flow: [],
+      by_block: [],
+    } as DbLinkClickSummary;
+  }
+
+  const safeTop = Math.max(1, Math.min(100, toInt(top, 20)));
+  try {
+    const base = await database
+      .prepare(
+        `SELECT
+          COUNT(*) AS total_clicks,
+          COUNT(DISTINCT wa_id) AS unique_contacts,
+          COALESCE(SUM(CASE WHEN shared_click = 1 THEN 1 ELSE 0 END), 0) AS shared_clicks
+        FROM link_clicks`,
+      )
+      .first<RowMap>();
+
+    const byFlowResult = await database
+      .prepare(
+        `SELECT
+          flow_id,
+          flow_name,
+          COUNT(*) AS clicks
+        FROM link_clicks
+        GROUP BY flow_id, flow_name
+        ORDER BY clicks DESC
+        LIMIT ?`,
+      )
+      .bind(safeTop)
+      .all<RowMap>();
+
+    const byBlockResult = await database
+      .prepare(
+        `SELECT
+          flow_id,
+          flow_name,
+          node_id,
+          block_name,
+          COUNT(*) AS clicks
+        FROM link_clicks
+        GROUP BY flow_id, flow_name, node_id, block_name
+        ORDER BY clicks DESC
+        LIMIT ?`,
+      )
+      .bind(safeTop)
+      .all<RowMap>();
+
+    const byFlowRows = Array.isArray(byFlowResult.results) ? byFlowResult.results : [];
+    const byBlockRows = Array.isArray(byBlockResult.results) ? byBlockResult.results : [];
+
+    return {
+      total_clicks: toInt(base?.total_clicks, 0),
+      unique_contacts: toInt(base?.unique_contacts, 0),
+      shared_clicks: toInt(base?.shared_clicks, 0),
+      by_flow: byFlowRows.map((row) => ({
+        flow_id: asString(row.flow_id) || undefined,
+        flow_name: asString(row.flow_name) || undefined,
+        clicks: toInt(row.clicks, 0),
+      })),
+      by_block: byBlockRows.map((row) => ({
+        flow_id: asString(row.flow_id) || undefined,
+        flow_name: asString(row.flow_name) || undefined,
+        node_id: asString(row.node_id) || undefined,
+        block_name: asString(row.block_name) || undefined,
+        clicks: toInt(row.clicks, 0),
+      })),
+    } as DbLinkClickSummary;
+  } catch (err) {
+    if (!isMissingTableError(err, "link_clicks")) throw err;
+    return {
+      total_clicks: 0,
+      unique_contacts: 0,
+      shared_clicks: 0,
+      by_flow: [],
+      by_block: [],
+    } as DbLinkClickSummary;
+  }
 }
 
 // Returns:

@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Botzap CRM - Clicks no Link</title>
+    <meta name="description" content="Botzap CRM - Clicks no Link" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <div class="brand">Botzap CRM</div>
+        <div class="subtitle">Clicks no Link <span class="version">v0.83</span></div>
+      </div>
+      <div class="topbar-actions">
+        <a class="ghost link" href="/app.html">Conversas</a>
+        <a class="ghost link" href="/contacts.html">Contatos</a>
+        <a class="ghost link" href="/flows.html">Fluxos</a>
+        <a class="ghost link" href="/logs.html">Logs</a>
+        <a class="ghost link" href="/clicks.html">Clicks no Link</a>
+        <a class="ghost link" href="/tools.html">Ferramentas</a>
+        <a class="ghost link" href="/status.html">Status</a>
+        <button id="logout" class="ghost" type="button">Sair</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="card clicks-card">
+        <div class="clicks-header">
+          <div>
+            <h1>Clicks no Link</h1>
+            <p class="hint">Resumo de cliques por fluxo e por bloco.</p>
+          </div>
+          <div class="clicks-actions">
+            <button id="clicks-refresh" type="button">Atualizar</button>
+          </div>
+        </div>
+
+        <div id="clicks-summary" class="clicks-summary"></div>
+
+        <div class="clicks-panels">
+          <section class="clicks-panel">
+            <h2>Por fluxo</h2>
+            <div id="clicks-by-flow" class="clicks-ranking"></div>
+          </section>
+          <section class="clicks-panel">
+            <h2>Por bloco</h2>
+            <div id="clicks-by-block" class="clicks-ranking"></div>
+          </section>
+        </div>
+
+        <h2 class="clicks-recent-title">Cliques recentes</h2>
+        <div id="clicks-list" class="clicks-list"></div>
+        <p id="clicks-empty" class="hint"></p>
+      </section>
+    </main>
+
+    <script src="/clicks.js"></script>
+  </body>
+</html>
+

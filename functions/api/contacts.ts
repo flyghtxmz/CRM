@@ -80,11 +80,16 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     return json({ ok: false, error: "Not found" }, 404);
   }
 
-  const tags = new Set(Array.isArray(contact.tags) ? contact.tags : []);
+  const currentTags = Array.isArray(contact.tags) ? contact.tags.map((item) => String(item || "").trim()).filter(Boolean) : [];
+  const tags = new Set(currentTags);
+  const requestedTag = String(body.tag || "").trim();
+  const requestedNormalized = requestedTag.toLowerCase();
   if (action === "add") {
-    tags.add(body.tag);
+    if (requestedTag) tags.add(requestedTag);
   } else {
-    tags.delete(body.tag);
+    const next = Array.from(tags).filter((tag) => tag.toLowerCase() !== requestedNormalized);
+    tags.clear();
+    next.forEach((tag) => tags.add(tag));
   }
   contact.tags = Array.from(tags);
 

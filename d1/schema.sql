@@ -73,3 +73,22 @@ CREATE TABLE IF NOT EXISTS delay_job_claims (
 );
 
 CREATE INDEX IF NOT EXISTS idx_delay_job_claims_claimed_at ON delay_job_claims(claimed_at DESC);
+
+CREATE TABLE IF NOT EXISTS link_clicks (
+  id TEXT PRIMARY KEY,
+  ts INTEGER NOT NULL,
+  wa_id TEXT NOT NULL,
+  click_id TEXT,
+  short_url TEXT,
+  target_url TEXT,
+  device_type TEXT,
+  flow_id TEXT,
+  flow_name TEXT,
+  node_id TEXT,
+  block_name TEXT,
+  shared_click INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_link_clicks_ts ON link_clicks(ts DESC);
+CREATE INDEX IF NOT EXISTS idx_link_clicks_wa_id ON link_clicks(wa_id, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_link_clicks_flow ON link_clicks(flow_id, ts DESC);

@@ -1432,6 +1432,21 @@ body.canva-page .topbar-actions {
   padding: 0;
 }
 
+.flow-node-title-wrap {
+  min-width: 0;
+  width: 100%;
+  display: grid;
+  gap: 4px;
+}
+
+.flow-node-block-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #0f6a4f;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
 .flow-node-header button {
   background: transparent;
   border: none;
@@ -1938,6 +1953,132 @@ body.canva-page .topbar-actions {
   min-width: 220px;
 }
 
+.clicks-card h1,
+.clicks-card h2 {
+  margin: 0;
+}
+
+.clicks-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.clicks-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.clicks-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.clicks-metric {
+  border: 1px solid var(--wa-border);
+  border-radius: 12px;
+  background: #f7faf8;
+  padding: 12px;
+}
+
+.clicks-metric-value {
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.clicks-metric-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.clicks-panels {
+  margin-top: 14px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.clicks-panel {
+  border: 1px solid var(--wa-border);
+  border-radius: 12px;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.clicks-ranking {
+  display: grid;
+  gap: 6px;
+}
+
+.clicks-rank-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 10px;
+  background: #f8fbf9;
+  border: 1px solid #e6ece8;
+}
+
+.clicks-rank-label {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.clicks-rank-value {
+  font-size: 13px;
+  color: #0b5b4b;
+  font-weight: 700;
+}
+
+.clicks-recent-title {
+  margin-top: 14px;
+}
+
+.clicks-list {
+  margin-top: 8px;
+  display: grid;
+  gap: 8px;
+}
+
+.click-row {
+  border: 1px solid var(--wa-border);
+  border-radius: 12px;
+  padding: 10px;
+  background: #fff;
+  display: grid;
+  gap: 6px;
+}
+
+.click-row-top {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+
+.click-row-title {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.click-row-time {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.click-row-meta,
+.click-row-detail {
+  font-size: 12px;
+  color: #4c5b53;
+  word-break: break-all;
+}
+
 .contacts-list {
   display: grid;
   gap: 12px;
@@ -2132,8 +2273,21 @@ body.canva-page .topbar-actions {
   }
 
   .flow-shell {
-  display: grid;
-  grid-template-columns: 1fr;
-  height: calc(100vh - var(--topbar-height));
-  position: relative;
+    display: grid;
+    grid-template-columns: 1fr;
+    height: calc(100vh - var(--topbar-height));
+    position: relative;
+  }
+
+  .clicks-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .clicks-panels {
+    grid-template-columns: 1fr;
+  }
+
+  .click-row-top {
+    grid-template-columns: 1fr;
+  }
 }

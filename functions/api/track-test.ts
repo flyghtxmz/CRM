@@ -1,6 +1,6 @@
 import { Env, getSession, json, options, readJson } from "./_utils";
 import { processWaitClickStates } from "../webhook";
-import { dbUpsertContact, dbUpsertConversation, dbUpsertMessage } from "./_d1";
+import { dbInsertLinkClick, dbUpsertContact, dbUpsertConversation, dbUpsertMessage } from "./_d1";
 
 type TrackBody = {
   wa_id?: string;
@@ -51,6 +51,37 @@ type Contact = {
   last_click_device?: DeviceType;
 };
 
+type FlowLinkMeta = {
+  wa_id: string;
+  flow_id?: string;
+  flow_name?: string;
+  node_id?: string;
+  block_name?: string;
+  short_id?: string;
+  short_url?: string;
+  target_url?: string;
+  sent_at?: number;
+};
+
+type ClickRecord = {
+  id: string;
+  ts: number;
+  wa_id: string;
+  click_id?: string;
+  short_url?: string;
+  target_url?: string;
+  device_type?: DeviceType;
+  flow_id?: string;
+  flow_name?: string;
+  node_id?: string;
+  block_name?: string;
+  shared_click?: 0 | 1;
+};
+
+const FLOW_LINK_META_PREFIX = "flow-link-meta:";
+const CLICKS_INDEX_KEY = "clicks:index";
+const CLICKS_CACHE_LIMIT = 500;
+
 function nowUnix() {
   return Math.floor(Date.now() / 1000);
 }
@@ -85,6 +116,17 @@ function inferDeviceType(rawUa: string): DeviceType {
   return "unknown";
 }
 
+function extractShortSlug(rawLink: string) {
+  const value = String(rawLink || "").trim();
+  if (!value) return "";
+  const match = value.match(/\/s\/([A-Za-z0-9_-]+)(?:\.[A-Za-z0-9_-]+)?(?:[/?#]|$)/i);
+  return match ? String(match[1] || "").trim() : "";
+}
+
+function flowLinkMetaKey(waId: string, shortId: string) {
+  return `${FLOW_LINK_META_PREFIX}${waId}:${shortId}`;
+}
+
 function upsertContactList(list: Contact[], update: Contact) {
   const existing = list.find((item) => item.wa_id === update.wa_id);
   const merged: Contact = {
@@ -117,17 +159,25 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     body = null;
   }
 
-  const waId = String(body?.wa_id || "").trim();
-  if (!waId) {
+  const ownerWaId = String(body?.wa_id || "").trim();
+  const actorWaId = String(body?.wa_id || "").trim();
+  if (!ownerWaId) {
     return json({ ok: false, error: "Missing wa_id" }, 400);
   }
+  const waId = ownerWaId;
 
   const link = String(body?.short || body?.target || "").trim();
-  const match = link.match(/\/s\/([^/?#]+)/);
-  const clickId = match ? match[1] : "";
+  const clickId = extractShortSlug(link);
   const ua = String(body?.ua || request.headers.get("user-agent") || "");
   const deviceType = inferDeviceType(ua);
-  const message = `O ${waId} clicou no link (${deviceType})`;
+  const isSharedClick = Boolean(actorWaId && ownerWaId && actorWaId !== ownerWaId);
+  const linkMeta = clickId
+    ? ((await session.kv.get(flowLinkMetaKey(waId, clickId), "json")) as FlowLinkMeta | null)
+    : null;
+  const flowSuffix = linkMeta?.flow_name
+    ? ` | ${linkMeta.flow_name}${linkMeta.block_name ? ` (${linkMeta.block_name})` : ""}`
+    : "";
+  const message = `O ${waId} clicou no link (${deviceType})${flowSuffix}`;
   const ts = nowUnix();
 
   const contact = (await session.kv.get(`contact:${waId}`, "json")) as Contact | null;
@@ -188,6 +238,29 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   }
   await session.kv.put(threadKey, JSON.stringify(threadList));
 
+  const clickRecord: ClickRecord = {
+    id: eventId,
+    ts: Date.now(),
+    wa_id: waId,
+    click_id: clickId || undefined,
+    short_url: String(body?.short || linkMeta?.short_url || "").trim() || undefined,
+    target_url: String(body?.target || linkMeta?.target_url || "").trim() || undefined,
+    device_type: deviceType,
+    flow_id: String(linkMeta?.flow_id || "").trim() || undefined,
+    flow_name: String(linkMeta?.flow_name || "").trim() || undefined,
+    node_id: String(linkMeta?.node_id || "").trim() || undefined,
+    block_name: String(linkMeta?.block_name || "").trim() || undefined,
+    shared_click: isSharedClick ? 1 : 0,
+  };
+
+  const clickIndex = (await session.kv.get(CLICKS_INDEX_KEY, "json")) as ClickRecord[] | null;
+  const clickList: ClickRecord[] = Array.isArray(clickIndex) ? clickIndex : [];
+  clickList.unshift(clickRecord);
+  if (clickList.length > CLICKS_CACHE_LIMIT) {
+    clickList.splice(CLICKS_CACHE_LIMIT);
+  }
+  await session.kv.put(CLICKS_INDEX_KEY, JSON.stringify(clickList));
+
   if (env.BOTZAP_DB) {
     try {
       await dbUpsertContact(env, {
@@ -220,6 +293,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         event_kind: "click",
         event_state: "done",
       });
+      await dbInsertLinkClick(env, clickRecord);
     } catch {
       // keep click test endpoint resilient if D1 write fails
     }
