@@ -6,6 +6,8 @@ export type Env = {
   WHATSAPP_VERIFY_TOKEN?: string;
   BOTZAP_KV?: KVNamespace;
   BOTZAP_DB?: D1Database;
+  BOTZAP_AUDIO_R2?: R2Bucket;
+  BOTZAP_AUDIO_BASE_URL?: string;
   BOTZAP_ADMIN_EMAIL?: string;
   BOTZAP_ADMIN_PASSWORD?: string;
   BOTZAP_SESSION_TTL?: string;

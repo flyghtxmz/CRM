@@ -46,6 +46,140 @@ let linkFromBranch = null;
 let autoSaveTimer = null;
 let selectedNodeId = null;
 let messageBlockOrderCache = new Map();
+let audioLibraryCache = [];
+let ffmpegContext = {
+  ffmpeg: null,
+  fetchFile: null,
+  loading: null,
+};
+
+const AUDIO_LIBRARY_ENDPOINT = "/api/audio-library";
+
+async function fetchAudioLibrary(force = false) {
+  if (!force && Array.isArray(audioLibraryCache) && audioLibraryCache.length) {
+    return audioLibraryCache;
+  }
+  const res = await fetch(AUDIO_LIBRARY_ENDPOINT, { credentials: "include" });
+  if (!res.ok) {
+    throw new Error("Nao foi possivel carregar a biblioteca de audio");
+  }
+  const data = await res.json().catch(() => null);
+  if (!data || !data.ok || !Array.isArray(data.data)) {
+    throw new Error("Resposta invalida da biblioteca de audio");
+  }
+  audioLibraryCache = data.data;
+  return audioLibraryCache;
+}
+
+async function ensureFfmpeg() {
+  if (ffmpegContext.ffmpeg && ffmpegContext.fetchFile) {
+    return ffmpegContext;
+  }
+  if (ffmpegContext.loading) {
+    return ffmpegContext.loading;
+  }
+
+  ffmpegContext.loading = (async () => {
+    const ffmpegMod = await import("https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/esm/index.js");
+    const utilMod = await import("https://unpkg.com/@ffmpeg/util@0.12.1/dist/esm/index.js");
+    const FFmpegCtor = ffmpegMod.FFmpeg;
+    const fetchFileFn = utilMod.fetchFile;
+    const toBlobURL = utilMod.toBlobURL;
+
+    const ffmpeg = new FFmpegCtor();
+    const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
+    await ffmpeg.load({
+      coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, "text/javascript"),
+      wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, "application/wasm"),
+    });
+
+    ffmpegContext.ffmpeg = ffmpeg;
+    ffmpegContext.fetchFile = fetchFileFn;
+    ffmpegContext.loading = null;
+    return ffmpegContext;
+  })().catch((err) => {
+    ffmpegContext.loading = null;
+    throw err;
+  });
+
+  return ffmpegContext.loading;
+}
+
+function sanitizeAudioName(name) {
+  const value = String(name || "").trim();
+  if (!value) return "audio";
+  return value.replace(/[\r\n\t]+/g, " ").slice(0, 120);
+}
+
+async function convertToOggOpus(inputFile) {
+  if (!(inputFile instanceof File)) {
+    throw new Error("Arquivo invalido");
+  }
+
+  const originalName = String(inputFile.name || "audio");
+  const ext = (originalName.split(".").pop() || "").toLowerCase();
+  const mime = String(inputFile.type || "").toLowerCase();
+
+  if (ext === "ogg" && mime.includes("ogg")) {
+    return inputFile;
+  }
+
+  const ctx = await ensureFfmpeg();
+  const ffmpeg = ctx.ffmpeg;
+  const fetchFile = ctx.fetchFile;
+  if (!ffmpeg || !fetchFile) {
+    throw new Error("FFmpeg nao inicializado");
+  }
+
+  const safeExt = ext && /^[a-z0-9]+$/i.test(ext) ? ext : "mp3";
+  const inName = `input.${safeExt}`;
+  const outName = "output.ogg";
+  const baseName = sanitizeAudioName(originalName.replace(/\.[^.]+$/, ""));
+
+  await ffmpeg.writeFile(inName, await fetchFile(inputFile));
+  await ffmpeg.exec([
+    "-i",
+    inName,
+    "-vn",
+    "-c:a",
+    "libopus",
+    "-b:a",
+    "48k",
+    "-ac",
+    "1",
+    "-ar",
+    "48000",
+    outName,
+  ]);
+
+  const output = await ffmpeg.readFile(outName);
+  await ffmpeg.deleteFile(inName).catch(() => {});
+  await ffmpeg.deleteFile(outName).catch(() => {});
+
+  const blob = new Blob([output], { type: "audio/ogg" });
+  return new File([blob], `${baseName}.ogg`, { type: "audio/ogg" });
+}
+
+async function uploadAudioAsset(file, name) {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("name", sanitizeAudioName(name || file.name || "Audio"));
+
+  const res = await fetch(AUDIO_LIBRARY_ENDPOINT, {
+    method: "POST",
+    body: form,
+    credentials: "include",
+  });
+
+  const data = await res.json().catch(() => null);
+  if (!res.ok || !data || !data.ok || !data.data) {
+    throw new Error(data?.error || "Nao foi possivel enviar audio");
+  }
+
+  const uploaded = data.data;
+  audioLibraryCache = [uploaded, ...(audioLibraryCache || []).filter((item) => item.id !== uploaded.id)];
+  return uploaded;
+}
 
 const blockPresets = {
   start: { title: "Quando", body: "" },
@@ -53,6 +187,7 @@ const blockPresets = {
   message_link: { title: "Mensagem com link", body: "Texto da mensagem", url: "" },
   message_short: { title: "Mensagem com link curto", body: "Texto da mensagem", url: "" },
   message_image: { title: "Mensagem com imagem + link", body: "Legenda da imagem", url: "", image: "" },
+  message_audio: { title: "Mensagem de audio", body: "", audio_source: "existing", audio_id: "", audio_url: "", audio_name: "" },
   question: { title: "Pergunta", body: "Pergunta para o cliente" },
   delay: { title: "Delay", body: "Esperar" },
   condition: { title: "Condicao", body: "" },
@@ -64,12 +199,13 @@ const blockOptions = [
   { type: "message_link", label: "Mensagem com link" },
   { type: "message_short", label: "Mensagem com link curto" },
   { type: "message_image", label: "Mensagem com imagem + link" },
+  { type: "message_audio", label: "Mensagem de audio" },
   { type: "question", label: "Pergunta" },
   { type: "delay", label: "Delay" },
   { type: "condition", label: "Condicao" },
   { type: "action", label: "Acoes" },
 ];
-const MESSAGE_NODE_TYPES = new Set(["message", "message_link", "message_short", "message_image"]);
+const MESSAGE_NODE_TYPES = new Set(["message", "message_link", "message_short", "message_image", "message_audio"]);
 
 function makeId(prefix) {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
@@ -229,6 +365,13 @@ async function loadFlow() {
     }
     if ((node.type === "message_short" || node.type === "message_image") && typeof node.linkFormat !== "string") {
       node.linkFormat = "default";
+    }
+    if (node.type === "message_audio") {
+      node.audio_source = node.audio_source === "upload" ? "upload" : "existing";
+      node.audio_id = typeof node.audio_id === "string" ? node.audio_id : "";
+      node.audio_url = typeof node.audio_url === "string" ? node.audio_url : "";
+      node.audio_name = typeof node.audio_name === "string" ? node.audio_name : "";
+      node.body = typeof node.body === "string" ? node.body : "";
     }
     if (node.type === "action") {
       if (node.action && typeof node.action === "object") {
@@ -585,6 +728,7 @@ function nodeSize(node) {
   if (type === "action") return { width: 300, height: 220 };
   if (type === "delay") return { width: 320, height: 190 };
   if (type === "message_image") return { width: 300, height: 360 };
+  if (type === "message_audio") return { width: 320, height: 320 };
   if (type === "message_short" || type === "message_link") return { width: 300, height: 300 };
   return { width: 260, height: 220 };
 }
@@ -1725,6 +1869,270 @@ function renderLinkMessageNode(node) {
   enableDrag(el, node);
 }
 
+function renderAudioMessageNode(node) {
+  if (!surface) return;
+  const el = document.createElement("div");
+  el.className = "flow-node flow-node-message-link flow-node-message-audio";
+  el.dataset.nodeId = node.id;
+  el.style.left = `${node.x}px`;
+  el.style.top = `${node.y}px`;
+
+  const header = document.createElement("div");
+  header.className = "flow-node-header";
+  appendMessageHeaderTitle(header, node, "Mensagem de audio");
+  const deleteBtn = createDeleteButton(node);
+  if (deleteBtn) header.appendChild(deleteBtn);
+
+  const body = document.createElement("div");
+  body.className = "flow-node-body flow-audio-body";
+
+  const sourceSelect = document.createElement("select");
+  sourceSelect.innerHTML = `
+    <option value="upload">Enviar audio</option>
+    <option value="existing">Escolher existente</option>
+  `;
+
+  const nameInput = document.createElement("input");
+  nameInput.type = "text";
+  nameInput.placeholder = "Nome do audio";
+  nameInput.value = node.audio_name || "";
+  nameInput.addEventListener("change", () => {
+    node.audio_name = nameInput.value;
+    scheduleAutoSave();
+  });
+
+  const existingPanel = document.createElement("div");
+  existingPanel.className = "flow-audio-existing";
+  const existingSelect = document.createElement("select");
+  const refreshButton = document.createElement("button");
+  refreshButton.type = "button";
+  refreshButton.className = "ghost";
+  refreshButton.textContent = "Atualizar";
+
+  const uploadPanel = document.createElement("div");
+  uploadPanel.className = "flow-audio-upload";
+  const pickButton = document.createElement("button");
+  pickButton.type = "button";
+  pickButton.textContent = "Selecionar arquivo";
+  const fileInput = document.createElement("input");
+  fileInput.type = "file";
+  fileInput.accept = "audio/*";
+  fileInput.style.display = "none";
+  const uploadHint = document.createElement("div");
+  uploadHint.className = "flow-audio-hint";
+  uploadHint.textContent = "MP3 sera convertido para OGG/Opus uma unica vez no upload.";
+
+  const status = document.createElement("div");
+  status.className = "flow-audio-status";
+
+  const preview = document.createElement("div");
+  preview.className = "flow-audio-preview";
+  const previewTitle = document.createElement("div");
+  previewTitle.className = "flow-audio-preview-title";
+  const audioEl = document.createElement("audio");
+  audioEl.controls = true;
+  audioEl.preload = "none";
+  audioEl.style.width = "100%";
+  const previewUrl = document.createElement("div");
+  previewUrl.className = "flow-audio-preview-url";
+
+  const existingMap = new Map();
+
+  const setStatus = (text, mode = "info") => {
+    status.textContent = text || "";
+    status.dataset.mode = mode;
+    status.style.display = text ? "block" : "none";
+  };
+
+  const updatePreview = () => {
+    const currentUrl = String(node.audio_url || "").trim();
+    const currentName = String(node.audio_name || "Audio").trim() || "Audio";
+    previewTitle.textContent = currentName;
+    previewUrl.textContent = currentUrl || "Sem audio selecionado";
+    if (currentUrl) {
+      audioEl.src = currentUrl;
+      audioEl.style.display = "block";
+    } else {
+      audioEl.removeAttribute("src");
+      audioEl.style.display = "none";
+    }
+  };
+
+  const populateExistingOptions = () => {
+    existingMap.clear();
+    existingSelect.innerHTML = "";
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "Selecione um audio";
+    existingSelect.appendChild(placeholder);
+
+    (audioLibraryCache || []).forEach((item) => {
+      const id = String(item?.id || "");
+      const url = String(item?.url || "");
+      if (!id || !url) return;
+      existingMap.set(id, item);
+      const option = document.createElement("option");
+      option.value = id;
+      option.textContent = String(item.name || "Audio");
+      existingSelect.appendChild(option);
+    });
+
+    if (node.audio_id && existingMap.has(node.audio_id)) {
+      existingSelect.value = node.audio_id;
+    } else {
+      existingSelect.value = "";
+    }
+  };
+
+  const applyAssetToNode = (asset) => {
+    node.audio_id = String(asset.id || "");
+    node.audio_url = String(asset.url || "");
+    node.audio_name = String(asset.name || node.audio_name || "Audio");
+    node.audio_source = "existing";
+    sourceSelect.value = "existing";
+    nameInput.value = node.audio_name;
+    populateExistingOptions();
+    existingSelect.value = node.audio_id;
+    updatePanels();
+    updatePreview();
+    scheduleAutoSave();
+    saveFlow();
+  };
+
+  const updatePanels = () => {
+    const mode = sourceSelect.value === "upload" ? "upload" : "existing";
+    node.audio_source = mode;
+    existingPanel.style.display = mode === "existing" ? "grid" : "none";
+    uploadPanel.style.display = mode === "upload" ? "grid" : "none";
+  };
+
+  const refreshLibrary = async (force) => {
+    try {
+      setStatus("Carregando biblioteca de audio...", "info");
+      await fetchAudioLibrary(force);
+      populateExistingOptions();
+      if (!audioLibraryCache.length) {
+        setStatus("Nenhum audio na biblioteca ainda.", "warn");
+      } else {
+        setStatus("", "info");
+      }
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "Falha ao carregar biblioteca", "error");
+    }
+  };
+
+  sourceSelect.value = node.audio_source === "upload" ? "upload" : "existing";
+  sourceSelect.addEventListener("change", () => {
+    updatePanels();
+    scheduleAutoSave();
+  });
+
+  existingSelect.addEventListener("change", () => {
+    const id = String(existingSelect.value || "");
+    if (!id) {
+      node.audio_id = "";
+      node.audio_url = "";
+      updatePreview();
+      scheduleAutoSave();
+      return;
+    }
+    const asset = existingMap.get(id);
+    if (!asset) return;
+    applyAssetToNode(asset);
+    setStatus("Audio existente selecionado.", "ok");
+  });
+
+  refreshButton.addEventListener("click", () => {
+    refreshLibrary(true);
+  });
+
+  pickButton.addEventListener("click", () => {
+    fileInput.click();
+  });
+
+  fileInput.addEventListener("change", async () => {
+    const picked = fileInput.files && fileInput.files[0] ? fileInput.files[0] : null;
+    if (!picked) return;
+
+    try {
+      setStatus("Convertendo para OGG/Opus...", "info");
+      const converted = await convertToOggOpus(picked);
+      const finalName = nameInput.value || picked.name || "Audio";
+      setStatus("Enviando audio para biblioteca...", "info");
+      const asset = await uploadAudioAsset(converted, finalName);
+      await refreshLibrary(true);
+      applyAssetToNode(asset);
+      setStatus("Audio enviado com sucesso.", "ok");
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "Falha no upload do audio", "error");
+    } finally {
+      fileInput.value = "";
+    }
+  });
+
+  existingPanel.appendChild(existingSelect);
+  existingPanel.appendChild(refreshButton);
+
+  uploadPanel.appendChild(pickButton);
+  uploadPanel.appendChild(fileInput);
+  uploadPanel.appendChild(uploadHint);
+
+  preview.appendChild(previewTitle);
+  preview.appendChild(audioEl);
+  preview.appendChild(previewUrl);
+
+  body.appendChild(sourceSelect);
+  body.appendChild(nameInput);
+  body.appendChild(existingPanel);
+  body.appendChild(uploadPanel);
+  body.appendChild(status);
+  body.appendChild(preview);
+
+  const connectorOut = document.createElement("div");
+  connectorOut.className = "connector out";
+  connectorOut.title = "Saida";
+  connectorOut.addEventListener("click", () => {
+    linkFromId = node.id;
+    linkFromBranch = "default";
+    clearLinking();
+    el.classList.add("linking");
+  });
+
+  const connectorIn = document.createElement("div");
+  connectorIn.className = "connector in";
+  connectorIn.title = "Entrada";
+  connectorIn.addEventListener("click", () => {
+    if (!linkFromId || linkFromId === node.id) return;
+    const branch = linkFromBranch || "default";
+    const exists = state.edges.some(
+      (edge) =>
+        edge.from === linkFromId &&
+        edge.to === node.id &&
+        (edge.branch || "default") === branch,
+    );
+    if (!exists) {
+      state.edges.push({ id: makeId("edge"), from: linkFromId, to: node.id, branch });
+      renderEdges();
+      scheduleAutoSave();
+    }
+    linkFromId = null;
+    resetLinking();
+  });
+
+  el.appendChild(header);
+  el.appendChild(body);
+  el.appendChild(connectorIn);
+  el.appendChild(connectorOut);
+  surface.appendChild(el);
+  attachNodeInteractions(el, node);
+  enableDrag(el, node);
+
+  updatePanels();
+  updatePreview();
+  populateExistingOptions();
+  refreshLibrary(false);
+}
+
 function renderDelayNode(node) {
   if (!surface) return;
   const el = document.createElement("div");
@@ -2052,6 +2460,10 @@ function renderNodes() {
       renderImageMessageNode(node);
       return;
     }
+    if (node.type === "message_audio") {
+      renderAudioMessageNode(node);
+      return;
+    }
     const el = document.createElement("div");
     el.className = `flow-node flow-node-${node.type}`;
     el.dataset.nodeId = node.id;
@@ -2319,6 +2731,12 @@ function addBlockAt(type, x, y) {
   }
   if (type === "message_short" || type === "message_image") {
     node.linkFormat = "default";
+  }
+  if (type === "message_audio") {
+    node.audio_source = "existing";
+    node.audio_id = "";
+    node.audio_url = "";
+    node.audio_name = "";
   }
   state.nodes.push(node);
   setSelectedNode(node.id);

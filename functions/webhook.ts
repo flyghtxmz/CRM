@@ -64,6 +64,10 @@ type FlowNode = {
   body?: string;
   url?: string;
   image?: string;
+  audio_id?: string;
+  audio_url?: string;
+  audio_name?: string;
+  audio_voice?: boolean;
   linkMode?: string;
   linkFormat?: string;
   delay_value?: number;
@@ -342,7 +346,8 @@ function isMessageNodeType(type: string) {
     type === "message" ||
     type === "message_link" ||
     type === "message_short" ||
-    type === "message_image"
+    type === "message_image" ||
+    type === "message_audio"
   );
 }
 
@@ -920,6 +925,22 @@ async function sendImageMessage(env: Env, to: string, imageUrl: string, caption 
   return callGraph(`${phoneNumberId}/messages`, token, body, version);
 }
 
+async function sendAudioMessage(env: Env, to: string, audioUrl: string, voice = true) {
+  const token = requireEnv(env, "WHATSAPP_TOKEN");
+  const phoneNumberId = requireEnv(env, "WHATSAPP_PHONE_NUMBER_ID");
+  const version = apiVersion(env);
+  const body = {
+    messaging_product: "whatsapp",
+    to,
+    type: "audio",
+    audio: {
+      link: audioUrl,
+      ...(voice ? { voice: true } : {}),
+    },
+  };
+  return callGraph(`${phoneNumberId}/messages`, token, body, version);
+}
+
 function nowUnix() {
   return Math.floor(Date.now() / 1000);
 }
@@ -1421,12 +1442,12 @@ async function runFlow(
         logNotes.push(`delay:${node.id}:ignorado`);
       }
 
-      if (node.type === "message" || node.type === "message_link" || node.type === "message_short" || node.type === "message_image") {
+      if (node.type === "message" || node.type === "message_link" || node.type === "message_short" || node.type === "message_image" || node.type === "message_audio") {
         const body = String(node.body || "").trim();
         const blockLabel = messageBlockLabel(messageOrderMap, node.id);
         const blockVarToken = toBlockToken(blockLabel);
         let url = "";
-        if (node.type !== "message") {
+        if (node.type !== "message" && node.type !== "message_audio") {
           url = applyVars(String(node.url || "").trim(), contact, {
             bloco: blockVarToken,
             fluxo: flowVarToken,
@@ -1458,7 +1479,47 @@ async function runFlow(
             text = `${finalUrl}\n${body}`.trim();
           }
         }
-        if (node.type === "message_image") {
+        if (node.type === "message_audio") {
+          const audioUrl = String(node.audio_url || "").trim();
+          const audioName = String(node.audio_name || "").trim();
+          const voice = node.audio_voice !== false;
+          if (!audioUrl) {
+            logNotes.push(`msg:${node.id}:sem_audio`);
+          } else {
+            let localId: string | null = null;
+            if (kv) {
+              const previewText = audioName ? `[audio] ${audioName}` : "[audio]";
+              const local = await appendOutgoingMessage(
+                kv,
+                env,
+                contact,
+                previewText,
+                "audio",
+                { mediaUrl: audioUrl },
+              );
+              localId = local.localId;
+            }
+            try {
+              const data: any = await sendAudioMessage(env, contact.wa_id, audioUrl, voice);
+              logNotes.push(`msg:${node.id}:ok`);
+              if (kv && localId) {
+                await finalizeOutgoingMessage(
+                  kv,
+                  env,
+                  contact.wa_id,
+                  localId,
+                  "sent",
+                  data?.messages?.[0]?.id,
+                );
+              }
+            } catch {
+              logNotes.push(`msg:${node.id}:falhou`);
+              if (kv && localId) {
+                await finalizeOutgoingMessage(kv, env, contact.wa_id, localId, "failed");
+              }
+            }
+          }
+        } else if (node.type === "message_image") {
           if (!image) {
             logNotes.push(`msg:${node.id}:sem_imagem`);
           } else {
