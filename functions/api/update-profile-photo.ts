@@ -59,27 +59,35 @@ async function uploadFileData(
   contentType: string,
 ) {
   const url = `https://graph.facebook.com/${version}/${uploadSessionId}`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      authorization: `OAuth ${token}`,
-      file_offset: "0",
-      "content-type": contentType,
-    },
-    body: bytes,
-  });
+  const authHeaders = [`OAuth ${token}`, `Bearer ${token}`];
+  let lastErr: GraphError | null = null;
 
-  const data = await parseResponse(res);
-  if (!res.ok) {
-    throw toGraphError(res.status, data);
+  for (const auth of authHeaders) {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        authorization: auth,
+        file_offset: "0",
+        "content-type": contentType,
+      },
+      body: bytes,
+    });
+
+    const data = await parseResponse(res);
+    if (!res.ok) {
+      lastErr = toGraphError(res.status, data);
+      continue;
+    }
+
+    const handle = String((data as any)?.h || "").trim();
+    if (!handle) {
+      throw toGraphError(500, { ok: false, error: "Upload returned no handle", data });
+    }
+
+    return { handle, data };
   }
 
-  const handle = String((data as any)?.h || "").trim();
-  if (!handle) {
-    throw toGraphError(500, { ok: false, error: "Upload returned no handle", data });
-  }
-
-  return { handle, data };
+  throw (lastErr || toGraphError(500, { ok: false, error: "Upload failed" }));
 }
 
 async function updateBusinessProfilePhoto(

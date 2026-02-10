@@ -11,7 +11,7 @@
     <header class="topbar">
       <div>
         <div class="brand">Botzap CRM</div>
-        <div class="subtitle">Ferramentas <span class="version">v0.98</span></div>
+        <div class="subtitle">Ferramentas <span class="version">v1.00</span></div>
       </div>
       <div class="topbar-actions">
         <a class="ghost link" href="/app.html">Conversas</a>
@@ -77,6 +77,20 @@
           <p class="hint">Liste os numeros vinculados a sua WABA e copie o ID.</p>
           <button type="button" id="phone-numbers">Buscar numeros</button>
           <pre id="phone-result" class="result" aria-live="polite"></pre>
+        </section>
+
+        <section class="card">
+          <h1>Mudar foto</h1>
+          <p class="hint">Atualiza a foto do WhatsApp Business (JPG/PNG, ate 5MB).</p>
+          <p class="hint">Requer variavel de ambiente <code>WHATSAPP_APP_ID</code>.</p>
+          <form id="profile-photo-form">
+            <label>
+              Arquivo de imagem
+              <input name="photo_file" type="file" accept="image/jpeg,image/png" required />
+            </label>
+            <button type="submit">Atualizar foto</button>
+          </form>
+          <pre id="profile-photo-result" class="result" aria-live="polite"></pre>
         </section>
 
         <section class="card">
@@ -164,4 +178,3 @@
     <script src="/app.js"></script>
   </body>
 </html>
-

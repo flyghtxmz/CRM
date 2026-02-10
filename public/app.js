@@ -8,6 +8,8 @@ const webhookButton = document.getElementById("webhook-test");
 const webhookResult = document.getElementById("webhook-result");
 const phoneButton = document.getElementById("phone-numbers");
 const phoneResult = document.getElementById("phone-result");
+const profilePhotoForm = document.getElementById("profile-photo-form");
+const profilePhotoResult = document.getElementById("profile-photo-result");
 const audioUploadForm = document.getElementById("audio-upload-form");
 const audioUploadResult = document.getElementById("audio-upload-result");
 const audioRefreshButton = document.getElementById("audio-refresh");
@@ -890,6 +892,49 @@ if (templateForm) {
 
 
 
+
+if (profilePhotoForm && profilePhotoResult) {
+  profilePhotoForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    profilePhotoResult.textContent = "Enviando imagem...";
+
+    try {
+      const form = new FormData(profilePhotoForm);
+      const file = form.get("photo_file");
+      if (!(file instanceof File)) {
+        profilePhotoResult.textContent = "Selecione uma imagem JPG ou PNG.";
+        return;
+      }
+
+      const payload = new FormData();
+      payload.append("file", file);
+
+      const res = await fetch("/api/update-profile-photo", {
+        method: "POST",
+        body: payload,
+        credentials: "include",
+      });
+
+      const text = await res.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = { raw: text };
+      }
+
+      if (!res.ok) {
+        profilePhotoResult.textContent = pretty({ ok: false, status: res.status, data });
+        return;
+      }
+
+      profilePhotoResult.textContent = pretty(data);
+    } catch (err) {
+      profilePhotoResult.textContent = pretty({ ok: false, error: formatUnknownError(err) });
+    }
+  });
+}
+
 if (webhookButton && webhookResult) {
   webhookButton.addEventListener("click", async () => {
     webhookResult.textContent = "Testando...";
@@ -900,7 +945,9 @@ if (webhookButton && webhookResult) {
       webhookResult.textContent = pretty(err);
     }
   });
-}if (phoneButton && phoneResult) {
+}
+
+if (phoneButton && phoneResult) {
   phoneButton.addEventListener("click", async () => {
     phoneResult.textContent = "Buscando...";
     try {
@@ -949,6 +996,11 @@ if (trackForm && trackResult) {
     }
   });
 }
+
+
+
+
+
 
 
 

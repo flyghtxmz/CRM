@@ -137,7 +137,12 @@ function upsertContactList(list: Contact[], update: Contact) {
     ...(existing || { wa_id: update.wa_id, tags: [] }),
     ...update,
   };
-  merged.tags = uniqueTags([...(existing?.tags || []), ...(update.tags || [])]);
+  // `update.tags` is authoritative when provided (including empty array for removals).
+  if (Array.isArray(update.tags)) {
+    merged.tags = uniqueTags(update.tags);
+  } else {
+    merged.tags = uniqueTags(existing?.tags || []);
+  }
 
   const next = list.filter((item) => item.wa_id !== update.wa_id);
   next.unshift(merged);
