@@ -2446,3 +2446,66 @@ body.canva-page .topbar-actions {
     grid-template-columns: 1fr;
   }
 }
+
+.tools-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.audio-library-list {
+  margin-top: 10px;
+  display: grid;
+  gap: 10px;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.audio-item {
+  border: 1px solid var(--wa-border);
+  border-radius: 12px;
+  background: #f9fcfa;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.audio-item-title {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.audio-item-meta {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.audio-item audio {
+  width: 100%;
+}
+
+.audio-item-actions {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.audio-item-actions input {
+  margin: 0;
+}
+
+.audio-item-actions button {
+  margin-top: 0;
+  border-radius: 10px;
+  padding: 8px 12px;
+}
+
+.audio-item-actions .danger {
+  background: #e05656;
+}
+
+.audio-item-actions .danger:hover {
+  background: #c74343;
+}

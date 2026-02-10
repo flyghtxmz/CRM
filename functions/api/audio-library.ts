@@ -1,4 +1,4 @@
-﻿import { Env, getSession, json, options } from "./_utils";
+import { Env, getSession, json, options } from "./_utils";
 
 type AudioAsset = {
   id: string;
@@ -194,10 +194,16 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   }
 
   const sourceName = safeName(String(file.name || "audio.ogg"));
-  const ext = extensionFromName(sourceName);
+  const extFromName = extensionFromName(sourceName);
   const mimeCandidate = String(file.type || "").trim().toLowerCase();
-  const mimeByExt = mimeFromExtension(ext);
+  const mimeByExt = mimeFromExtension(extFromName);
   const mime = mimeCandidate.startsWith("audio/") ? mimeCandidate : mimeByExt;
+
+  let ext = extFromName;
+  if (mime.includes("ogg") || mime.includes("opus")) {
+    ext = "ogg";
+  }
+
   if (!String(mime || "").toLowerCase().startsWith("audio/") && !isAudioExtension(ext)) {
     return json(
       {
@@ -210,7 +216,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   }
 
   const displayNameRaw = String(form.get("name") || "").trim();
-  const displayName = safeName(displayNameRaw || sourceName.replace(/\.[^.]+$/, "") || "Audio");
+  const displayNameSeed = displayNameRaw || sourceName.replace(/\.[^.]+$/, "") || "Audio";
+  const displayName = safeName(displayNameSeed, "Audio").replace(/\.[^.]+$/, "") || "Audio";
 
   const createdAt = Date.now();
   const random = Math.floor(Math.random() * 100000);
@@ -263,3 +270,63 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
   return json({ ok: true, data: asset });
 };
+
+export const onRequestPatch: PagesFunction<Env> = async ({ request, env }) => {
+  const session = await getSession(request, env);
+  if ("error" in session) {
+    return json({ ok: false, error: session.error }, session.status);
+  }
+
+  let body: any = null;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ ok: false, error: "Invalid JSON" }, 400);
+  }
+
+  const id = String(body?.id || "").trim();
+  const name = safeName(String(body?.name || "").trim(), "Audio");
+  if (!id) return json({ ok: false, error: "Missing id" }, 400);
+
+  const list = await readLibrary(session.kv);
+  const idx = list.findIndex((item) => item.id === id);
+  if (idx < 0) return json({ ok: false, error: "Audio not found" }, 404);
+
+  list[idx] = { ...list[idx], name };
+  await writeLibrary(session.kv, list);
+  return json({ ok: true, data: list[idx] });
+};
+
+export const onRequestDelete: PagesFunction<Env> = async ({ request, env }) => {
+  const session = await getSession(request, env);
+  if ("error" in session) {
+    return json({ ok: false, error: session.error }, session.status);
+  }
+
+  let body: any = null;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ ok: false, error: "Invalid JSON" }, 400);
+  }
+
+  const id = String(body?.id || "").trim();
+  if (!id) return json({ ok: false, error: "Missing id" }, 400);
+
+  const list = await readLibrary(session.kv);
+  const item = list.find((x) => x.id === id);
+  if (!item) return json({ ok: false, error: "Audio not found" }, 404);
+
+  if (env.BOTZAP_AUDIO_R2 && item.key) {
+    try {
+      await env.BOTZAP_AUDIO_R2.delete(item.key);
+    } catch {
+      // keep delete flow resilient
+    }
+  }
+
+  const next = list.filter((x) => x.id !== id);
+  await writeLibrary(session.kv, next);
+  return json({ ok: true, deleted: true, id });
+};
+

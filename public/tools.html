@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="pt-BR">
   <head>
     <meta charset="utf-8" />
@@ -11,7 +11,7 @@
     <header class="topbar">
       <div>
         <div class="brand">Botzap CRM</div>
-        <div class="subtitle">Ferramentas <span class="version">v0.97</span></div>
+        <div class="subtitle">Ferramentas <span class="version">v0.98</span></div>
       </div>
       <div class="topbar-actions">
         <a class="ghost link" href="/app.html">Conversas</a>
@@ -99,6 +99,29 @@
           </form>
           <pre id="track-result" class="result" aria-live="polite"></pre>
         </section>
+
+        <section class="card">
+          <h1>Biblioteca de audios</h1>
+          <p class="hint">Upload com conversao obrigatoria para OGG/Opus, renomear e apagar.</p>
+          <form id="audio-upload-form">
+            <label>
+              Nome do audio (opcional)
+              <input name="audio_name" placeholder="Ex.: Boas-vindas" />
+            </label>
+            <label>
+              Arquivo de audio
+              <input id="audio-file" name="audio_file" type="file" accept="audio/*" required />
+            </label>
+            <button type="submit">Converter e enviar</button>
+          </form>
+          <div class="tools-actions">
+            <button type="button" id="audio-refresh">Atualizar lista</button>
+          </div>
+          <pre id="audio-upload-result" class="result" aria-live="polite"></pre>
+          <div id="audio-library-empty" class="hint">Nenhum audio carregado.</div>
+          <div id="audio-library-list" class="audio-library-list"></div>
+        </section>
+
         <section class="card">
           <h1>Canva</h1>
           <p class="hint">Crie fluxos e tags visuais em um canva no estilo Manychat.</p>
@@ -109,7 +132,12 @@
           <h1>Logs</h1>
           <p class="hint">Veja o que o webhook executou nos fluxos.</p>
           <a class="ghost link button-link" href="/logs.html">Abrir Logs</a>
-        <a class="ghost link" href="/status.html">Status</a>
+        </section>
+
+        <section class="card">
+          <h1>Status</h1>
+          <p class="hint">Diagnostico rapido de ambiente e API.</p>
+          <a class="ghost link button-link" href="/status.html">Abrir Status</a>
         </section>
 
         <section class="card">
@@ -136,18 +164,3 @@
     <script src="/app.js"></script>
   </body>
 </html>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

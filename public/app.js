@@ -8,6 +8,11 @@ const webhookButton = document.getElementById("webhook-test");
 const webhookResult = document.getElementById("webhook-result");
 const phoneButton = document.getElementById("phone-numbers");
 const phoneResult = document.getElementById("phone-result");
+const audioUploadForm = document.getElementById("audio-upload-form");
+const audioUploadResult = document.getElementById("audio-upload-result");
+const audioRefreshButton = document.getElementById("audio-refresh");
+const audioLibraryList = document.getElementById("audio-library-list");
+const audioLibraryEmpty = document.getElementById("audio-library-empty");
 const logoutButton = document.getElementById("logout");
 const convButton = document.getElementById("refresh-conversations");
 const convList = document.getElementById("conversation-list");
@@ -23,6 +28,22 @@ const chatError = document.getElementById("chat-error");
 const searchInput = document.getElementById("conversation-search");
 
 const pretty = (data) => JSON.stringify(data, null, 2);
+function formatUnknownError(err) {
+  if (err instanceof Error && err.message) return err.message;
+  if (typeof err === "string" && err.trim()) return err;
+  if (err && typeof err === "object" && "data" in err) {
+    try {
+      return JSON.stringify(err.data);
+    } catch {
+      // ignore
+    }
+  }
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err || "Erro desconhecido");
+  }
+}
 let currentConversationId = null;
 let currentConversationName = null;
 let allConversations = [];
@@ -423,6 +444,350 @@ async function postJson(url, payload) {
   return data;
 }
 
+const AUDIO_LIBRARY_ENDPOINT = "/api/audio-library";
+const AUDIO_MAX_UPLOAD_BYTES = 16 * 1024 * 1024;
+let audioToolsCache = [];
+let audioToolsFfmpeg = {
+  ffmpeg: null,
+  loading: null,
+  logs: [],
+};
+
+function normalizeAudioDisplayName(raw, fallback = "Audio") {
+  const value = String(raw || "").trim();
+  if (!value) return fallback;
+  return value.replace(/[\r\n\t]+/g, " ").replace(/\.[^.]+$/, "").slice(0, 120);
+}
+
+function isVoiceReadyAudio(fileName, mimeType) {
+  const name = String(fileName || "").toLowerCase();
+  const mime = String(mimeType || "").toLowerCase();
+  return name.endsWith(".ogg") || mime.includes("ogg") || mime.includes("opus");
+}
+
+function setAudioUploadStatus(text) {
+  if (!audioUploadResult) return;
+  audioUploadResult.textContent = text || "";
+}
+
+async function audioRequestJson(url, method, payload) {
+  const res = await fetch(url, {
+    method,
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload || {}),
+    credentials: "include",
+  });
+  const text = await res.text();
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    data = { raw: text };
+  }
+  if (!res.ok) {
+    throw new Error(data?.error || `HTTP ${res.status}`);
+  }
+  return data;
+}
+
+async function ensureAudioToolsFfmpeg() {
+  if (audioToolsFfmpeg.ffmpeg) return audioToolsFfmpeg;
+  if (audioToolsFfmpeg.loading) return audioToolsFfmpeg.loading;
+
+  const downloadAsBlobURL = async (urls, mimeType) => {
+    const list = Array.isArray(urls) ? urls : [];
+    let lastErr = null;
+    for (const url of list) {
+      try {
+        const res = await fetch(url, { cache: "force-cache" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const blob = await res.blob();
+        const typedBlob = mimeType ? new Blob([blob], { type: mimeType }) : blob;
+        return URL.createObjectURL(typedBlob);
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+    throw new Error(`Falha ao baixar recurso FFmpeg: ${String(lastErr || "erro")}`);
+  };
+
+  audioToolsFfmpeg.loading = (async () => {
+    const ffmpegMod = await import("/vendor/ffmpeg/esm/index.js");
+    const FFmpegCtor = ffmpegMod.FFmpeg;
+    const ffmpeg = new FFmpegCtor();
+    const workerURL = `${window.location.origin}/vendor/ffmpeg/esm/worker.js`;
+
+    ffmpeg.on("log", (entry) => {
+      const msg = String(entry?.message || "").trim();
+      if (!msg) return;
+      audioToolsFfmpeg.logs.push(msg);
+      if (audioToolsFfmpeg.logs.length > 80) {
+        audioToolsFfmpeg.logs.splice(0, audioToolsFfmpeg.logs.length - 80);
+      }
+    });
+
+    const coreURL = await downloadAsBlobURL([
+      "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/esm/ffmpeg-core.js",
+      "https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm/ffmpeg-core.js",
+    ], "text/javascript");
+
+    const wasmURL = await downloadAsBlobURL([
+      "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/esm/ffmpeg-core.wasm",
+      "https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm/ffmpeg-core.wasm",
+    ], "application/wasm");
+
+    await ffmpeg.load({ classWorkerURL: workerURL, coreURL, wasmURL });
+    audioToolsFfmpeg.ffmpeg = ffmpeg;
+    audioToolsFfmpeg.loading = null;
+    return audioToolsFfmpeg;
+  })().catch((err) => {
+    audioToolsFfmpeg.loading = null;
+    throw err;
+  });
+
+  return audioToolsFfmpeg.loading;
+}
+
+async function convertAudioToOggOpus(file) {
+  if (!(file instanceof File)) {
+    throw new Error("Arquivo invalido");
+  }
+
+  const originalName = String(file.name || "audio");
+  const ext = (originalName.split(".").pop() || "").toLowerCase();
+  const mime = String(file.type || "").toLowerCase();
+  if (ext === "ogg" && mime.includes("ogg")) return file;
+
+  const ctx = await ensureAudioToolsFfmpeg();
+  const ffmpeg = ctx.ffmpeg;
+  if (!ffmpeg) throw new Error("FFmpeg nao inicializado");
+  audioToolsFfmpeg.logs = [];
+
+  const safeExt = ext && /^[a-z0-9]+$/i.test(ext) ? ext : "mp3";
+  const nonce = `${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+  const inName = `tool_input_${nonce}.${safeExt}`;
+  const outName = `tool_output_${nonce}.ogg`;
+  const baseName = normalizeAudioDisplayName(originalName, "audio");
+
+  try {
+    await ffmpeg.writeFile(inName, new Uint8Array(await file.arrayBuffer()));
+    const rc = await ffmpeg.exec([
+      "-i", inName,
+      "-map", "0:a:0",
+      "-vn", "-sn", "-dn",
+      "-c:a", "libopus",
+      "-vbr", "on",
+      "-application", "voip",
+      "-b:a", "48k",
+      "-ac", "1",
+      "-ar", "48000",
+      outName,
+    ]);
+
+    if (Number(rc) !== 0) {
+      const tail = audioToolsFfmpeg.logs.slice(-8).join(" | ");
+      throw new Error(`FFmpeg retornou codigo ${rc}${tail ? `: ${tail}` : ""}`);
+    }
+
+    const output = await ffmpeg.readFile(outName);
+    const blob = new Blob([output], { type: "audio/ogg; codecs=opus" });
+    return new File([blob], `${baseName}.ogg`, { type: "audio/ogg; codecs=opus" });
+  } catch (err) {
+    const base = err instanceof Error ? err.message : String(err || "erro de conversao");
+    const tail = audioToolsFfmpeg.logs.slice(-8).join(" | ");
+    throw new Error(`${base}${tail ? ` | log: ${tail}` : ""}`);
+  } finally {
+    await ffmpeg.deleteFile(inName).catch(() => {});
+    await ffmpeg.deleteFile(outName).catch(() => {});
+  }
+}
+
+async function fetchAudioLibrary() {
+  const res = await fetch(AUDIO_LIBRARY_ENDPOINT, { credentials: "include" });
+  const text = await res.text();
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    data = { raw: text };
+  }
+  if (!res.ok || !data?.ok) {
+    throw new Error(data?.error || `Falha ao carregar biblioteca (HTTP ${res.status})`);
+  }
+  audioToolsCache = Array.isArray(data.data) ? data.data : [];
+  return data;
+}
+
+function renderAudioLibrary(items) {
+  if (!audioLibraryList || !audioLibraryEmpty) return;
+  audioLibraryList.innerHTML = "";
+  const list = Array.isArray(items) ? items : [];
+  audioLibraryEmpty.style.display = list.length ? "none" : "block";
+
+  list.forEach((item) => {
+    const row = document.createElement("div");
+    row.className = "audio-item";
+
+    const title = document.createElement("div");
+    title.className = "audio-item-title";
+    title.textContent = item.name || "Audio";
+
+    const meta = document.createElement("div");
+    meta.className = "audio-item-meta";
+    meta.textContent = `${item.mime || "audio/*"} | ${(Number(item.size || 0) / 1024).toFixed(1)} KB`;
+
+    const player = document.createElement("audio");
+    player.controls = true;
+    player.preload = "none";
+    player.src = item.url || "";
+
+    const actions = document.createElement("div");
+    actions.className = "audio-item-actions";
+
+    const renameInput = document.createElement("input");
+    renameInput.type = "text";
+    renameInput.value = item.name || "";
+    renameInput.placeholder = "Nome do audio";
+
+    const renameBtn = document.createElement("button");
+    renameBtn.type = "button";
+    renameBtn.textContent = "Renomear";
+    renameBtn.addEventListener("click", async () => {
+      try {
+        const name = normalizeAudioDisplayName(renameInput.value, "Audio");
+        await audioRequestJson(AUDIO_LIBRARY_ENDPOINT, "PATCH", { id: item.id, name });
+        setAudioUploadStatus("Audio renomeado com sucesso.");
+        await refreshAudioLibraryView();
+      } catch (err) {
+        setAudioUploadStatus(formatUnknownError(err));
+      }
+    });
+
+    const deleteBtn = document.createElement("button");
+    deleteBtn.type = "button";
+    deleteBtn.className = "danger";
+    deleteBtn.textContent = "Apagar";
+    deleteBtn.addEventListener("click", async () => {
+      if (!window.confirm("Deseja apagar este audio da biblioteca?")) return;
+      try {
+        await audioRequestJson(AUDIO_LIBRARY_ENDPOINT, "DELETE", { id: item.id });
+        setAudioUploadStatus("Audio apagado com sucesso.");
+        await refreshAudioLibraryView();
+      } catch (err) {
+        setAudioUploadStatus(formatUnknownError(err));
+      }
+    });
+
+    const openLink = document.createElement("a");
+    openLink.href = item.url || "#";
+    openLink.target = "_blank";
+    openLink.rel = "noopener noreferrer";
+    openLink.textContent = "Abrir URL";
+    openLink.className = "ghost link";
+
+    actions.appendChild(renameInput);
+    actions.appendChild(renameBtn);
+    actions.appendChild(deleteBtn);
+    actions.appendChild(openLink);
+
+    row.appendChild(title);
+    row.appendChild(meta);
+    row.appendChild(player);
+    row.appendChild(actions);
+
+    audioLibraryList.appendChild(row);
+  });
+}
+
+async function refreshAudioLibraryView() {
+  try {
+    const data = await fetchAudioLibrary();
+    renderAudioLibrary(audioToolsCache);
+    if (audioUploadResult && !audioUploadResult.textContent) {
+      setAudioUploadStatus(pretty({ ok: true, total: audioToolsCache.length, env: data.env || null }));
+    }
+  } catch (err) {
+    setAudioUploadStatus(formatUnknownError(err));
+  }
+}
+
+async function uploadAudioToLibrary(file, name) {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("name", normalizeAudioDisplayName(name, "Audio"));
+
+  const res = await fetch(AUDIO_LIBRARY_ENDPOINT, {
+    method: "POST",
+    body: form,
+    credentials: "include",
+  });
+
+  const text = await res.text();
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    data = { raw: text };
+  }
+
+  if (!res.ok || !data?.ok) {
+    throw new Error(data?.error || `Upload falhou (HTTP ${res.status})`);
+  }
+  return data.data;
+}
+
+function setupAudioTools() {
+  if (!audioUploadForm && !audioRefreshButton) return;
+
+  if (audioRefreshButton) {
+    audioRefreshButton.addEventListener("click", () => {
+      setAudioUploadStatus("Atualizando biblioteca...");
+      refreshAudioLibraryView();
+    });
+  }
+
+  if (audioUploadForm) {
+    audioUploadForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const form = new FormData(audioUploadForm);
+      const file = form.get("audio_file");
+      const customName = String(form.get("audio_name") || "").trim();
+
+      if (!(file instanceof File)) {
+        setAudioUploadStatus("Selecione um arquivo de audio.");
+        return;
+      }
+
+      if (Number(file.size || 0) > AUDIO_MAX_UPLOAD_BYTES) {
+        setAudioUploadStatus(`Arquivo muito grande. Limite: ${Math.floor(AUDIO_MAX_UPLOAD_BYTES / (1024 * 1024))}MB`);
+        return;
+      }
+
+      try {
+        setAudioUploadStatus("Convertendo para OGG/Opus...");
+        const converted = await convertAudioToOggOpus(file);
+        if (!isVoiceReadyAudio(converted.name, converted.type)) {
+          throw new Error("Conversao nao gerou OGG/Opus valido.");
+        }
+
+        const finalName = customName || normalizeAudioDisplayName(file.name, "Audio");
+        setAudioUploadStatus("Enviando audio convertido...");
+        const saved = await uploadAudioToLibrary(converted, finalName);
+        setAudioUploadStatus(pretty({ ok: true, uploaded: saved }));
+
+        const fileInput = document.getElementById("audio-file");
+        if (fileInput) fileInput.value = "";
+
+        await refreshAudioLibraryView();
+      } catch (err) {
+        setAudioUploadStatus(`Conversao obrigatoria falhou: ${formatUnknownError(err)}`);
+        console.error("[botzap-tools-audio-convert-required-error]", err);
+      }
+    });
+  }
+
+  refreshAudioLibraryView();
+}
 async function sendChatMessage() {
   if (!chatInput || !chatSend) return;
   if (!currentConversationId) {
@@ -524,7 +889,18 @@ if (templateForm) {
 }
 
 
-if (phoneButton && phoneResult) {
+
+if (webhookButton && webhookResult) {
+  webhookButton.addEventListener("click", async () => {
+    webhookResult.textContent = "Testando...";
+    try {
+      const data = await postJson("/api/test-webhook", {});
+      webhookResult.textContent = pretty(data);
+    } catch (err) {
+      webhookResult.textContent = pretty(err);
+    }
+  });
+}if (phoneButton && phoneResult) {
   phoneButton.addEventListener("click", async () => {
     phoneResult.textContent = "Buscando...";
     try {
@@ -540,6 +916,7 @@ ensureSession().then((ok) => {
   if (ok) {
     refreshNow();
     startAutoRefresh();
+    setupAudioTools();
   }
 });
 
@@ -572,6 +949,8 @@ if (trackForm && trackResult) {
     }
   });
 }
+
+
 
 
 
