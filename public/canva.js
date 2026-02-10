@@ -128,6 +128,11 @@ function sanitizeAudioName(name) {
   return value.replace(/[\r\n\t]+/g, " ").slice(0, 120);
 }
 
+function isVoiceReadyAudio(fileName, mimeType) {
+  const name = String(fileName || "").toLowerCase();
+  const mime = String(mimeType || "").toLowerCase();
+  return name.endsWith(".ogg") || mime.includes("ogg") || mime.includes("opus");
+}
 async function convertToOggOpus(inputFile) {
   if (!(inputFile instanceof File)) {
     throw new Error("Arquivo invalido");
@@ -213,7 +218,7 @@ const blockPresets = {
   message_link: { title: "Mensagem com link", body: "Texto da mensagem", url: "" },
   message_short: { title: "Mensagem com link curto", body: "Texto da mensagem", url: "" },
   message_image: { title: "Mensagem com imagem + link", body: "Legenda da imagem", url: "", image: "" },
-  message_audio: { title: "Mensagem de audio", body: "", audio_source: "existing", audio_id: "", audio_url: "", audio_name: "" },
+  message_audio: { title: "Mensagem de audio", body: "", audio_source: "existing", audio_id: "", audio_url: "", audio_name: "", audio_voice: true },
   question: { title: "Pergunta", body: "Pergunta para o cliente" },
   delay: { title: "Delay", body: "Esperar" },
   condition: { title: "Condicao", body: "" },
@@ -397,6 +402,7 @@ async function loadFlow() {
       node.audio_id = typeof node.audio_id === "string" ? node.audio_id : "";
       node.audio_url = typeof node.audio_url === "string" ? node.audio_url : "";
       node.audio_name = typeof node.audio_name === "string" ? node.audio_name : "";
+      node.audio_voice = node.audio_voice !== false;
       node.body = typeof node.body === "string" ? node.body : "";
     }
     if (node.type === "action") {
@@ -2014,6 +2020,7 @@ function renderAudioMessageNode(node) {
     node.audio_id = String(asset.id || "");
     node.audio_url = String(asset.url || "");
     node.audio_name = String(asset.name || node.audio_name || "Audio");
+    node.audio_voice = Boolean(asset.voice_ready);
     node.audio_source = "existing";
     sourceSelect.value = "existing";
     nameInput.value = node.audio_name;
@@ -2076,19 +2083,34 @@ function renderAudioMessageNode(node) {
     fileInput.click();
   });
 
-    fileInput.addEventListener("change", async () => {
+      fileInput.addEventListener("change", async () => {
     const picked = fileInput.files && fileInput.files[0] ? fileInput.files[0] : null;
     if (!picked) return;
 
     try {
-      setStatus("Convertendo para OGG/Opus...", "info");
-      const converted = await convertToOggOpus(picked);
       const finalName = nameInput.value || picked.name || "Audio";
+      let fileToUpload = picked;
+      let converted = false;
+
+      try {
+        setStatus("Convertendo para OGG/Opus...", "info");
+        fileToUpload = await convertToOggOpus(picked);
+        converted = true;
+      } catch (conversionErr) {
+        console.warn("[botzap-audio-convert-fallback]", conversionErr);
+        setStatus("Conversao falhou. Enviando arquivo original...", "warn");
+        fileToUpload = picked;
+      }
+
       setStatus("Enviando audio para biblioteca...", "info");
-      const asset = await uploadAudioAsset(converted, finalName);
+      const asset = await uploadAudioAsset(fileToUpload, finalName);
       await refreshLibrary(true);
       applyAssetToNode(asset);
-      setStatus("Audio enviado com sucesso.", "ok");
+      if (converted) {
+        setStatus("Audio convertido e enviado com sucesso.", "ok");
+      } else {
+        setStatus("Audio enviado sem conversao (fallback).", "warn");
+      }
     } catch (err) {
       setStatus(formatUnknownError(err), "error");
       console.error("[botzap-audio-upload-error]", err);
@@ -2764,6 +2786,7 @@ function addBlockAt(type, x, y) {
     node.audio_id = "";
     node.audio_url = "";
     node.audio_name = "";
+    node.audio_voice = true;
   }
   state.nodes.push(node);
   setSelectedNode(node.id);

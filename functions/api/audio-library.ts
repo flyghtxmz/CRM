@@ -1,4 +1,4 @@
-import { Env, getSession, json, options } from "./_utils";
+﻿import { Env, getSession, json, options } from "./_utils";
 
 type AudioAsset = {
   id: string;
@@ -76,7 +76,17 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   }
 
   const list = await readLibrary(session.kv);
-  return json({ ok: true, data: list });
+  const baseUrl = normalizeBaseUrl(env.BOTZAP_AUDIO_BASE_URL || "");
+  return json({
+    ok: true,
+    data: list,
+    env: {
+      has_r2: Boolean(env.BOTZAP_AUDIO_R2),
+      has_base_url: Boolean(baseUrl),
+      base_url: baseUrl || null,
+      max_audio_bytes: MAX_AUDIO_BYTES,
+    },
+  });
 };
 
 export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
@@ -134,16 +144,21 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   const key = `audio/${createdAt}_${random}.${ext}`;
   const bytes = await file.arrayBuffer();
 
-  await bucket.put(key, bytes, {
-    httpMetadata: {
-      contentType: mime,
-      cacheControl: "public, max-age=31536000",
-    },
-    customMetadata: {
-      name: displayName,
-      uploaded_by: "botzap",
-    },
-  });
+  try {
+    await bucket.put(key, bytes, {
+      httpMetadata: {
+        contentType: mime,
+        cacheControl: "public, max-age=31536000",
+      },
+      customMetadata: {
+        name: displayName,
+        uploaded_by: "botzap",
+      },
+    });
+  } catch (err: any) {
+    const detail = err?.message ? String(err.message) : "R2 put failed";
+    return json({ ok: false, error: `R2 upload failed: ${detail}` }, 500);
+  }
 
   const asset: AudioAsset = {
     id: newId(),

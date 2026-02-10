@@ -1,4 +1,4 @@
-import { apiVersion, callGraph, Env, json, requireEnv } from "./api/_utils";
+﻿import { apiVersion, callGraph, Env, json, requireEnv } from "./api/_utils";
 import { dbCleanupOldDelayJobClaims, dbFinalizeOutgoingMessage, dbInsertFlowLogs, dbReleaseDelayJobClaim, dbTryClaimDelayJob, dbUpdateMessageStatusByMessageId, dbUpsertContact, dbUpsertConversation, dbUpsertMessage } from "./api/_d1";
 
 type Conversation = {
@@ -1500,7 +1500,14 @@ async function runFlow(
               localId = local.localId;
             }
             try {
-              const data: any = await sendAudioMessage(env, contact.wa_id, audioUrl, voice);
+              let data: any;
+              try {
+                data = await sendAudioMessage(env, contact.wa_id, audioUrl, voice);
+              } catch (err) {
+                if (!voice) throw err;
+                data = await sendAudioMessage(env, contact.wa_id, audioUrl, false);
+                logNotes.push(`msg:${node.id}:retry_sem_voice`);
+              }
               logNotes.push(`msg:${node.id}:ok`);
               if (kv && localId) {
                 await finalizeOutgoingMessage(
