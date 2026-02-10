@@ -1,4 +1,4 @@
-const logoutButton = document.getElementById("logout");
+﻿const logoutButton = document.getElementById("logout");
 const saveButton = document.getElementById("save-flow");
 const exportButton = document.getElementById("export-flow");
 const resetButton = document.getElementById("reset-flow");
@@ -49,7 +49,6 @@ let messageBlockOrderCache = new Map();
 let audioLibraryCache = [];
 let ffmpegContext = {
   ffmpeg: null,
-  fetchFile: null,
   loading: null,
 };
 
@@ -72,7 +71,7 @@ async function fetchAudioLibrary(force = false) {
 }
 
 async function ensureFfmpeg() {
-  if (ffmpegContext.ffmpeg && ffmpegContext.fetchFile) {
+  if (ffmpegContext.ffmpeg) {
     return ffmpegContext;
   }
   if (ffmpegContext.loading) {
@@ -81,20 +80,29 @@ async function ensureFfmpeg() {
 
   ffmpegContext.loading = (async () => {
     const ffmpegMod = await import("https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/esm/index.js");
-    const utilMod = await import("https://unpkg.com/@ffmpeg/util@0.12.1/dist/esm/index.js");
     const FFmpegCtor = ffmpegMod.FFmpeg;
-    const fetchFileFn = utilMod.fetchFile;
-    const toBlobURL = utilMod.toBlobURL;
+    const toBlobURL = async (url, mimeType) => {
+      const res = await fetch(url, { cache: "force-cache" });
+      if (!res.ok) {
+        throw new Error(`Nao foi possivel baixar FFmpeg core: ${res.status}`);
+      }
+      const blob = await res.blob();
+      const typedBlob = mimeType
+        ? new Blob([blob], { type: mimeType })
+        : blob;
+      return URL.createObjectURL(typedBlob);
+    };
 
     const ffmpeg = new FFmpegCtor();
     const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
+    const workerURL = `${window.location.origin}/vendor/ffmpeg/esm/worker.js`;
     await ffmpeg.load({
+      classWorkerURL: workerURL,
       coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, "text/javascript"),
       wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, "application/wasm"),
     });
 
     ffmpegContext.ffmpeg = ffmpeg;
-    ffmpegContext.fetchFile = fetchFileFn;
     ffmpegContext.loading = null;
     return ffmpegContext;
   })().catch((err) => {
@@ -126,8 +134,7 @@ async function convertToOggOpus(inputFile) {
 
   const ctx = await ensureFfmpeg();
   const ffmpeg = ctx.ffmpeg;
-  const fetchFile = ctx.fetchFile;
-  if (!ffmpeg || !fetchFile) {
+  if (!ffmpeg) {
     throw new Error("FFmpeg nao inicializado");
   }
 
@@ -136,7 +143,7 @@ async function convertToOggOpus(inputFile) {
   const outName = "output.ogg";
   const baseName = sanitizeAudioName(originalName.replace(/\.[^.]+$/, ""));
 
-  await ffmpeg.writeFile(inName, await fetchFile(inputFile));
+  await ffmpeg.writeFile(inName, new Uint8Array(await inputFile.arrayBuffer()));
   await ffmpeg.exec([
     "-i",
     inName,
@@ -1554,7 +1561,7 @@ function renderActionNode(node) {
 
   const timeoutHint = document.createElement("div");
   timeoutHint.className = "hint";
-  timeoutHint.textContent = "Saidas: Clicou (imediato) e Nao clicou (após prazo).";
+  timeoutHint.textContent = "Saidas: Clicou (imediato) e Nao clicou (apÃ³s prazo).";
 
   const waitClickSave = document.createElement("button");
   waitClickSave.type = "button";
