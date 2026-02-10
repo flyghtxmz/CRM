@@ -3,7 +3,7 @@ export type Env = {
   WHATSAPP_PHONE_NUMBER_ID?: string;
   WHATSAPP_WABA_ID?: string;
   WHATSAPP_API_VERSION?: string;
-  WHATSAPP_VERIFY_TOKEN?: string;
+  WHATSAPP_VERIFY_TOKEN?: string;`r`n  WHATSAPP_APP_ID?: string;
   BOTZAP_KV?: KVNamespace;
   BOTZAP_DB?: D1Database;
   BOTZAP_AUDIO_R2?: R2Bucket;
@@ -143,4 +143,5 @@ export async function getSession(request: Request, env: Env) {
 
   return { kv, token, data } as const;
 }
+
 
