@@ -50,6 +50,7 @@ let audioLibraryCache = [];
 let ffmpegContext = {
   ffmpeg: null,
   loading: null,
+  logs: [],
 };
 
 const AUDIO_LIBRARY_ENDPOINT = "/api/audio-library";
@@ -88,28 +89,54 @@ async function ensureFfmpeg() {
     return ffmpegContext.loading;
   }
 
-  ffmpegContext.loading = (async () => {
-    const ffmpegMod = await import("https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/esm/index.js");
-    const FFmpegCtor = ffmpegMod.FFmpeg;
-    const toBlobURL = async (url, mimeType) => {
-      const res = await fetch(url, { cache: "force-cache" });
-      if (!res.ok) {
-        throw new Error(`Nao foi possivel baixar FFmpeg core: ${res.status}`);
+  const downloadAsBlobURL = async (urls, mimeType) => {
+    const list = Array.isArray(urls) ? urls : [];
+    let lastErr = null;
+    for (const url of list) {
+      try {
+        const res = await fetch(url, { cache: "force-cache" });
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+        const blob = await res.blob();
+        const typedBlob = mimeType ? new Blob([blob], { type: mimeType }) : blob;
+        return URL.createObjectURL(typedBlob);
+      } catch (err) {
+        lastErr = err;
       }
-      const blob = await res.blob();
-      const typedBlob = mimeType
-        ? new Blob([blob], { type: mimeType })
-        : blob;
-      return URL.createObjectURL(typedBlob);
-    };
+    }
+    throw new Error(`Falha ao baixar recurso FFmpeg: ${String(lastErr || "erro desconhecido")}`);
+  };
+
+  ffmpegContext.loading = (async () => {
+    const ffmpegMod = await import("/vendor/ffmpeg/esm/index.js");
+    const FFmpegCtor = ffmpegMod.FFmpeg;
 
     const ffmpeg = new FFmpegCtor();
-    const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
     const workerURL = `${window.location.origin}/vendor/ffmpeg/esm/worker.js`;
+    ffmpeg.on("log", (entry) => {
+      const msg = String(entry?.message || "").trim();
+      if (!msg) return;
+      ffmpegContext.logs.push(msg);
+      if (ffmpegContext.logs.length > 80) {
+        ffmpegContext.logs.splice(0, ffmpegContext.logs.length - 80);
+      }
+    });
+
+    const coreURL = await downloadAsBlobURL([
+      "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js",
+      "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js",
+    ], "text/javascript");
+
+    const wasmURL = await downloadAsBlobURL([
+      "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm",
+      "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm",
+    ], "application/wasm");
+
     await ffmpeg.load({
       classWorkerURL: workerURL,
-      coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, "text/javascript"),
-      wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, "application/wasm"),
+      coreURL,
+      wasmURL,
     });
 
     ffmpegContext.ffmpeg = ffmpeg;
@@ -152,34 +179,54 @@ async function convertToOggOpus(inputFile) {
   if (!ffmpeg) {
     throw new Error("FFmpeg nao inicializado");
   }
+  ffmpegContext.logs = [];
 
   const safeExt = ext && /^[a-z0-9]+$/i.test(ext) ? ext : "mp3";
-  const inName = `input.${safeExt}`;
-  const outName = "output.ogg";
+  const nonce = `${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+  const inName = `input_${nonce}.${safeExt}`;
+  const outName = `output_${nonce}.ogg`;
   const baseName = sanitizeAudioName(originalName.replace(/\.[^.]+$/, ""));
 
-  await ffmpeg.writeFile(inName, new Uint8Array(await inputFile.arrayBuffer()));
-  await ffmpeg.exec([
-    "-i",
-    inName,
-    "-vn",
-    "-c:a",
-    "libopus",
-    "-b:a",
-    "48k",
-    "-ac",
-    "1",
-    "-ar",
-    "48000",
-    outName,
-  ]);
+  try {
+    await ffmpeg.writeFile(inName, new Uint8Array(await inputFile.arrayBuffer()));
+    const rc = await ffmpeg.exec([
+      "-i",
+      inName,
+      "-map",
+      "0:a:0",
+      "-vn",
+      "-sn",
+      "-dn",
+      "-c:a",
+      "libopus",
+      "-vbr",
+      "on",
+      "-application",
+      "voip",
+      "-b:a",
+      "48k",
+      "-ac",
+      "1",
+      "-ar",
+      "48000",
+      outName,
+    ]);
+    if (Number(rc) !== 0) {
+      const tail = ffmpegContext.logs.slice(-8).join(" | ");
+      throw new Error(`FFmpeg retornou codigo ${rc}${tail ? `: ${tail}` : ""}`);
+    }
 
-  const output = await ffmpeg.readFile(outName);
-  await ffmpeg.deleteFile(inName).catch(() => {});
-  await ffmpeg.deleteFile(outName).catch(() => {});
-
-  const blob = new Blob([output], { type: "audio/ogg" });
-  return new File([blob], `${baseName}.ogg`, { type: "audio/ogg" });
+    const output = await ffmpeg.readFile(outName);
+    const blob = new Blob([output], { type: "audio/ogg; codecs=opus" });
+    return new File([blob], `${baseName}.ogg`, { type: "audio/ogg; codecs=opus" });
+  } catch (err) {
+    const base = err instanceof Error ? err.message : String(err || "erro de conversao");
+    const tail = ffmpegContext.logs.slice(-8).join(" | ");
+    throw new Error(`${base}${tail ? ` | log: ${tail}` : ""}`);
+  } finally {
+    await ffmpeg.deleteFile(inName).catch(() => {});
+    await ffmpeg.deleteFile(outName).catch(() => {});
+  }
 }
 
 async function uploadAudioAsset(file, name) {
@@ -1953,7 +2000,7 @@ function renderAudioMessageNode(node) {
   fileInput.style.display = "none";
   const uploadHint = document.createElement("div");
   uploadHint.className = "flow-audio-hint";
-  uploadHint.textContent = "MP3 sera convertido para OGG/Opus uma unica vez no upload.";
+  uploadHint.textContent = "Conversao para OGG/Opus obrigatoria antes do envio.";
 
   const status = document.createElement("div");
   status.className = "flow-audio-status";
@@ -2084,8 +2131,8 @@ function renderAudioMessageNode(node) {
     fileInput.click();
   });
 
-      fileInput.addEventListener("change", async () => {
-        const picked = fileInput.files && fileInput.files[0] ? fileInput.files[0] : null;
+        fileInput.addEventListener("change", async () => {
+    const picked = fileInput.files && fileInput.files[0] ? fileInput.files[0] : null;
     if (!picked) return;
     if (Number(picked.size || 0) > MAX_AUDIO_UPLOAD_BYTES) {
       setStatus(`Arquivo muito grande: limite de ${Math.floor(MAX_AUDIO_UPLOAD_BYTES / (1024 * 1024))}MB`, "error");
@@ -2095,31 +2142,23 @@ function renderAudioMessageNode(node) {
 
     try {
       const finalName = nameInput.value || picked.name || "Audio";
-      let fileToUpload = picked;
-      let converted = false;
 
-      try {
-        setStatus("Convertendo para OGG/Opus...", "info");
-        fileToUpload = await convertToOggOpus(picked);
-        converted = true;
-      } catch (conversionErr) {
-        console.warn("[botzap-audio-convert-fallback]", conversionErr);
-        setStatus("Conversao falhou. Enviando arquivo original...", "warn");
-        fileToUpload = picked;
+      setStatus("Convertendo para OGG/Opus...", "info");
+      const converted = await convertToOggOpus(picked);
+
+      if (!isVoiceReadyAudio(converted.name, converted.type)) {
+        throw new Error("Conversao nao gerou OGG/Opus valido. Tente outro arquivo.");
       }
 
-      setStatus("Enviando audio para biblioteca...", "info");
-      const asset = await uploadAudioAsset(fileToUpload, finalName);
+      setStatus("Enviando audio convertido para biblioteca...", "info");
+      const asset = await uploadAudioAsset(converted, finalName);
       await refreshLibrary(true);
       applyAssetToNode(asset);
-      if (converted) {
-        setStatus("Audio convertido e enviado com sucesso.", "ok");
-      } else {
-        setStatus("Audio enviado sem conversao (fallback).", "warn");
-      }
+      setStatus("Audio convertido e enviado com sucesso.", "ok");
     } catch (err) {
-      setStatus(formatUnknownError(err), "error");
-      console.error("[botzap-audio-upload-error]", err);
+      const detail = formatUnknownError(err);
+      setStatus(`Conversao obrigatoria falhou: ${detail}`, "error");
+      console.error("[botzap-audio-convert-required-error]", err);
     } finally {
       fileInput.value = "";
     }
