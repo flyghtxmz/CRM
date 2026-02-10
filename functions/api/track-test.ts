@@ -187,7 +187,12 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     waitClick = await processWaitClickStates(
       env,
       waId,
-      String(link || "click"),
+      {
+        text: String(link || "click"),
+        short: String(body?.short || ""),
+        target: String(body?.target || ""),
+        clickId: clickId,
+      },
     );
   } catch {
     // keep test endpoint resilient

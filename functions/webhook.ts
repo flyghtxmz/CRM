@@ -112,6 +112,9 @@ type WaitClickState = {
   wa_id: string;
   next_node_id: string;
   node_id?: string;
+  expected_click_id?: string;
+  expected_short?: string;
+  expected_target?: string;
   created_at: number;
 };
 
@@ -119,6 +122,7 @@ const FLOW_TRIGGER_DEBOUNCE_SEC = 10;
 const FLOW_DELAY_INDEX_KEY = "flow-delay-jobs:index";
 const FLOW_WAIT_REPLY_PREFIX = "flow-wait:";
 const FLOW_WAIT_CLICK_PREFIX = "flow-wait-click:";
+const FLOW_LAST_LINK_PREFIX = "flow-last-link:";
 const MAX_DELAY_JOBS_PER_TICK = 20;
 const THREAD_CACHE_LIMIT = 30;
 const CONTACT_CACHE_LIMIT = 120;
@@ -131,6 +135,7 @@ const DELAY_JOB_CLEANUP_INTERVAL_SEC = 3600;
 const DELAY_JOB_CLEANUP_LAST_KEY = "flow-delay-claims:last-cleanup";
 const WAIT_REPLY_TTL_SEC = 14 * 24 * 3600;
 const WAIT_CLICK_TTL_SEC = 14 * 24 * 3600;
+const FLOW_LAST_LINK_TTL_SEC = 30 * 24 * 3600;
 
 
 
@@ -240,6 +245,17 @@ function applyShortFormat(shortUrl: string, format: string) {
   if (base.endsWith(suffix)) return value;
   const next = `${base}${suffix}`;
   return parts.length > 1 ? `${next}?${parts.slice(1).join("?")}` : next;
+}
+
+function extractShortSlug(rawLink: string) {
+  const value = String(rawLink || "").trim();
+  if (!value) return "";
+  const match = value.match(/\/s\/([A-Za-z0-9_-]+)(?:\.[A-Za-z0-9_-]+)?(?:[/?#]|$)/i);
+  return match ? String(match[1] || "").trim() : "";
+}
+
+function flowLastLinkKey(waId: string) {
+  return `${FLOW_LAST_LINK_PREFIX}${waId}`;
 }
 function parseDelayUnit(value: unknown) {
   const unit = String(value || "").toLowerCase();
@@ -363,6 +379,16 @@ async function takeWaitClickStates(kv: KVNamespace, waId: string) {
     await kv.delete(waitClickKey(waId));
   }
   return items;
+}
+
+async function replaceWaitClickStates(kv: KVNamespace, waId: string, states: WaitClickState[]) {
+  if (!states.length) {
+    await kv.delete(waitClickKey(waId));
+    return;
+  }
+  await kv.put(waitClickKey(waId), JSON.stringify(states), {
+    expirationTtl: WAIT_CLICK_TTL_SEC,
+  });
 }
 
 async function enqueueDelayJob(kv: KVNamespace, job: DelayJob) {
@@ -936,9 +962,13 @@ async function runFlow(
   startNodeId?: string,
 ): Promise<boolean> {
   if (!flow || flow.enabled === false) return false;
+  const kv = env.BOTZAP_KV;
   const nodes = Array.isArray(flow.data?.nodes) ? flow.data?.nodes : [];
   const edges = Array.isArray(flow.data?.edges) ? flow.data?.edges : [];
   if (!nodes.length || !edges.length) return false;
+  let lastFlowLink = kv
+    ? String((await kv.get(flowLastLinkKey(contact.wa_id))) || "").trim()
+    : "";
 
   const nodesById = new Map(nodes.map((node) => [node.id, node]));
   const entryNodeIds: string[] = [];
@@ -1015,11 +1045,18 @@ async function runFlow(
             edge = undefined;
             continue;
           }
-          const kv = env.BOTZAP_KV;
           if (!kv) {
             logNotes.push(`acao:aguardo_click:${node.id}:sem_kv`);
             currentId = node.id;
             edge = nextAfterWait;
+            continue;
+          }
+          const expectedShort = String(lastFlowLink || "").trim();
+          const expectedClickId = extractShortSlug(expectedShort);
+          if (!expectedClickId) {
+            logNotes.push(`acao:aguardo_click:${node.id}:sem_link_curto`);
+            currentId = node.id;
+            edge = undefined;
             continue;
           }
 
@@ -1030,9 +1067,11 @@ async function runFlow(
             wa_id: contact.wa_id,
             next_node_id: nextAfterWait.to,
             node_id: node.id,
+            expected_click_id: expectedClickId,
+            expected_short: expectedShort,
             created_at: nowUnix(),
           });
-          logNotes.push(`acao:aguardo_click:${node.id}:ok`);
+          logNotes.push(`acao:aguardo_click:${node.id}:ok:${expectedClickId}`);
           currentId = node.id;
           edge = undefined;
           continue;
@@ -1133,7 +1172,6 @@ async function runFlow(
             logNotes.push(`msg:${node.id}:sem_imagem`);
           } else {
             const caption = text || "";
-            const kv = env.BOTZAP_KV;
             let localId: string | null = null;
             if (kv) {
               const previewText = caption || "[imagem]";
@@ -1150,6 +1188,14 @@ async function runFlow(
             try {
               const data: any = await sendImageMessage(env, contact.wa_id, image, caption);
               logNotes.push(`msg:${node.id}:ok`);
+              if (finalUrl) {
+                lastFlowLink = finalUrl;
+                if (kv) {
+                  await kv.put(flowLastLinkKey(contact.wa_id), lastFlowLink, {
+                    expirationTtl: FLOW_LAST_LINK_TTL_SEC,
+                  });
+                }
+              }
               if (kv && localId) {
                 await finalizeOutgoingMessage(
                   kv,
@@ -1168,7 +1214,6 @@ async function runFlow(
             }
           }
         } else if (text) {
-          const kv = env.BOTZAP_KV;
           let localId: string | null = null;
           if (kv) {
             const local = await appendOutgoingMessage(kv, env, contact, text, "text");
@@ -1182,6 +1227,14 @@ async function runFlow(
               Boolean(finalUrl),
             );
             logNotes.push(`msg:${node.id}:ok`);
+            if (finalUrl) {
+              lastFlowLink = finalUrl;
+              if (kv) {
+                await kv.put(flowLastLinkKey(contact.wa_id), lastFlowLink, {
+                  expirationTtl: FLOW_LAST_LINK_TTL_SEC,
+                });
+              }
+            }
             if (kv && localId) {
               await finalizeOutgoingMessage(
                   kv,
@@ -1212,12 +1265,73 @@ async function runFlow(
   return true;
 }
 
-export async function processWaitClickStates(env: Env, waId: string, clickText = "") {
+export async function processWaitClickStates(
+  env: Env,
+  waId: string,
+  click:
+    | string
+    | {
+        text?: string;
+        short?: string;
+        target?: string;
+        clickId?: string;
+      } = "",
+) {
   const kv = env.BOTZAP_KV;
   if (!kv || !waId) return { matched: 0, executed: 0, errors: 0 };
 
-  const waitStates = await takeWaitClickStates(kv, waId);
+  const waitStates = await listWaitClickStates(kv, waId);
   if (!waitStates.length) return { matched: 0, executed: 0, errors: 0 };
+
+  const clickInfo =
+    typeof click === "string"
+      ? {
+          text: String(click || ""),
+          short: String(click || ""),
+          target: "",
+          clickId: extractShortSlug(String(click || "")),
+        }
+      : {
+          text: String(click?.text || click?.short || click?.target || ""),
+          short: String(click?.short || ""),
+          target: String(click?.target || ""),
+          clickId:
+            String(click?.clickId || "").trim() ||
+            extractShortSlug(String(click?.short || "")) ||
+            extractShortSlug(String(click?.target || "")),
+        };
+
+  const clickId = String(clickInfo.clickId || "").trim();
+  const shortNormalized = String(clickInfo.short || "").trim();
+  const targetNormalized = String(clickInfo.target || "").trim();
+  const textNormalized = String(clickInfo.text || "").trim();
+
+  const matchedStates: WaitClickState[] = [];
+  const pendingStates: WaitClickState[] = [];
+  waitStates.forEach((state) => {
+    const expectedClickId = String(state.expected_click_id || "").trim();
+    const expectedShort = String(state.expected_short || "").trim();
+    const expectedTarget = String(state.expected_target || "").trim();
+
+    let matches = false;
+    if (expectedClickId) {
+      matches = clickId === expectedClickId;
+    } else if (expectedShort) {
+      matches = shortNormalized === expectedShort;
+    } else if (expectedTarget) {
+      matches = targetNormalized === expectedTarget;
+    } else {
+      matches = Boolean(clickId || shortNormalized || targetNormalized || textNormalized);
+    }
+
+    if (matches) matchedStates.push(state);
+    else pendingStates.push(state);
+  });
+
+  await replaceWaitClickStates(kv, waId, pendingStates);
+  if (!matchedStates.length) {
+    return { matched: 0, executed: 0, errors: 0 };
+  }
 
   const flowIndex = (await kv.get("flows:index", "json")) as Flow[] | null;
   const flows: Flow[] = Array.isArray(flowIndex) ? flowIndex : [];
@@ -1234,9 +1348,10 @@ export async function processWaitClickStates(env: Env, waId: string, clickText =
   let executed = 0;
   let errors = 0;
 
-  for (const state of waitStates) {
+  for (const state of matchedStates) {
     const tagsBefore = [...(contact.tags || [])];
     const notes: string[] = [`wait_click:${state.id}:resume`];
+    if (clickId) notes.push(`click:${clickId}`);
     const flow = flows.find((item) => item.id === state.flow_id && item.enabled !== false);
 
     if (!flow) {
@@ -1260,7 +1375,7 @@ export async function processWaitClickStates(env: Env, waId: string, clickText =
         flow,
         contact,
         notes,
-        clickText,
+        textNormalized || shortNormalized || targetNormalized || "click",
         state.next_node_id,
       );
       if (didExecute) executed += 1;
@@ -1315,7 +1430,7 @@ export async function processWaitClickStates(env: Env, waId: string, clickText =
     }
   }
 
-  return { matched: waitStates.length, executed, errors };
+  return { matched: matchedStates.length, executed, errors };
 }
 
 export async function processDueDelayJobs(env: Env, limit = MAX_DELAY_JOBS_PER_TICK) {
