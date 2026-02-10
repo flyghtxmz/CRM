@@ -11,6 +11,14 @@ type AudioAsset = {
   created_at: number;
 };
 
+type ProbeResult = {
+  ok: boolean;
+  error?: string;
+  key?: string;
+  head_size?: number | null;
+  head_type?: string | null;
+};
+
 const AUDIO_LIBRARY_KEY = "audio-library:index";
 const AUDIO_LIBRARY_LIMIT = 120;
 const MAX_AUDIO_BYTES = 16 * 1024 * 1024;
@@ -39,11 +47,18 @@ function extensionFromName(name: string) {
 
 function mimeFromExtension(ext: string) {
   const value = String(ext || "").toLowerCase();
-  if (value === "ogg") return "audio/ogg";
+  if (value === "ogg" || value === "opus") return "audio/ogg";
   if (value === "mp3") return "audio/mpeg";
   if (value === "m4a") return "audio/mp4";
   if (value === "wav") return "audio/wav";
+  if (value === "aac") return "audio/aac";
+  if (value === "webm") return "audio/webm";
   return "application/octet-stream";
+}
+
+function isAudioExtension(ext: string) {
+  const value = String(ext || "").toLowerCase();
+  return ["ogg", "opus", "mp3", "m4a", "wav", "aac", "webm"].includes(value);
 }
 
 function buildPublicUrl(base: string, key: string) {
@@ -67,6 +82,29 @@ async function writeLibrary(kv: KVNamespace, items: AudioAsset[]) {
   await kv.put(AUDIO_LIBRARY_KEY, JSON.stringify(list));
 }
 
+async function runR2Probe(bucket: R2Bucket): Promise<ProbeResult> {
+  try {
+    const key = `audio-probe/${Date.now()}_${Math.floor(Math.random() * 100000)}.txt`;
+    const payload = new TextEncoder().encode(`probe:${Date.now()}`);
+    await bucket.put(key, payload, {
+      httpMetadata: { contentType: "text/plain", cacheControl: "no-store" },
+    });
+    const head = await bucket.head(key);
+    await bucket.delete(key);
+    return {
+      ok: true,
+      key,
+      head_size: head?.size ?? null,
+      head_type: head?.httpMetadata?.contentType ?? null,
+    };
+  } catch (err: any) {
+    return {
+      ok: false,
+      error: err?.message ? String(err.message) : "R2 probe failed",
+    };
+  }
+}
+
 export const onRequestOptions = async () => options();
 
 export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
@@ -77,6 +115,18 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 
   const list = await readLibrary(session.kv);
   const baseUrl = normalizeBaseUrl(env.BOTZAP_AUDIO_BASE_URL || "");
+  const url = new URL(request.url);
+  const wantsProbe = url.searchParams.get("probe") === "1";
+
+  let probe: ProbeResult | null = null;
+  if (wantsProbe) {
+    if (!env.BOTZAP_AUDIO_R2) {
+      probe = { ok: false, error: "Missing env: BOTZAP_AUDIO_R2" };
+    } else {
+      probe = await runR2Probe(env.BOTZAP_AUDIO_R2);
+    }
+  }
+
   return json({
     ok: true,
     data: list,
@@ -86,6 +136,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       base_url: baseUrl || null,
       max_audio_bytes: MAX_AUDIO_BYTES,
     },
+    ...(probe ? { probe } : {}),
   });
 };
 
@@ -114,7 +165,14 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
   const filePart = form.get("file");
   if (!(filePart instanceof File)) {
-    return json({ ok: false, error: "Missing file" }, 400);
+    return json(
+      {
+        ok: false,
+        error: "Missing file",
+        debug: { keys: Array.from(form.keys()) },
+      },
+      400,
+    );
   }
 
   const file = filePart;
@@ -124,6 +182,11 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       {
         ok: false,
         error: `Invalid file size. Max ${MAX_AUDIO_BYTES} bytes`,
+        debug: {
+          name: String(file.name || ""),
+          type: String(file.type || ""),
+          size,
+        },
       },
       400,
     );
@@ -131,9 +194,18 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
   const sourceName = safeName(String(file.name || "audio.ogg"));
   const ext = extensionFromName(sourceName);
-  const mime = safeName(String(file.type || mimeFromExtension(ext) || "application/octet-stream"));
-  if (!mime.toLowerCase().startsWith("audio/")) {
-    return json({ ok: false, error: "File must be audio/*" }, 400);
+  const mimeCandidate = String(file.type || "").trim().toLowerCase();
+  const mimeByExt = mimeFromExtension(ext);
+  const mime = mimeCandidate.startsWith("audio/") ? mimeCandidate : mimeByExt;
+  if (!String(mime || "").toLowerCase().startsWith("audio/") && !isAudioExtension(ext)) {
+    return json(
+      {
+        ok: false,
+        error: "File must be audio/*",
+        debug: { name: sourceName, ext, type: mimeCandidate, resolved_mime: mime },
+      },
+      400,
+    );
   }
 
   const displayNameRaw = String(form.get("name") || "").trim();
@@ -142,7 +214,13 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   const createdAt = Date.now();
   const random = Math.floor(Math.random() * 100000);
   const key = `audio/${createdAt}_${random}.${ext}`;
-  const bytes = await file.arrayBuffer();
+
+  let bytes: ArrayBuffer;
+  try {
+    bytes = await file.arrayBuffer();
+  } catch (err: any) {
+    return json({ ok: false, error: `Read file failed: ${String(err?.message || err || "unknown")}` }, 400);
+  }
 
   try {
     await bucket.put(key, bytes, {
@@ -157,7 +235,14 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     });
   } catch (err: any) {
     const detail = err?.message ? String(err.message) : "R2 put failed";
-    return json({ ok: false, error: `R2 upload failed: ${detail}` }, 500);
+    return json(
+      {
+        ok: false,
+        error: `R2 upload failed: ${detail}`,
+        debug: { key, mime, size: bytes.byteLength, baseUrl },
+      },
+      500,
+    );
   }
 
   const asset: AudioAsset = {
@@ -167,7 +252,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     url: buildPublicUrl(baseUrl, key),
     mime,
     size,
-    voice_ready: ext === "ogg" || mime.toLowerCase().includes("ogg"),
+    voice_ready: ext === "ogg" || ext === "opus" || mime.toLowerCase().includes("ogg") || mime.toLowerCase().includes("opus"),
     created_at: createdAt,
   };
 
