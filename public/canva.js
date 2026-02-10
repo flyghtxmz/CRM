@@ -53,6 +53,7 @@ let ffmpegContext = {
 };
 
 const AUDIO_LIBRARY_ENDPOINT = "/api/audio-library";
+const MAX_AUDIO_UPLOAD_BYTES = 16 * 1024 * 1024;
 function formatUnknownError(err) {
   if (err instanceof Error && err.message) return err.message;
   if (typeof err === "string" && err.trim()) return err;
@@ -2084,8 +2085,13 @@ function renderAudioMessageNode(node) {
   });
 
       fileInput.addEventListener("change", async () => {
-    const picked = fileInput.files && fileInput.files[0] ? fileInput.files[0] : null;
+        const picked = fileInput.files && fileInput.files[0] ? fileInput.files[0] : null;
     if (!picked) return;
+    if (Number(picked.size || 0) > MAX_AUDIO_UPLOAD_BYTES) {
+      setStatus(`Arquivo muito grande: limite de ${Math.floor(MAX_AUDIO_UPLOAD_BYTES / (1024 * 1024))}MB`, "error");
+      fileInput.value = "";
+      return;
+    }
 
     try {
       const finalName = nameInput.value || picked.name || "Audio";

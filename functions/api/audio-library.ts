@@ -159,8 +159,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   let form: FormData;
   try {
     form = await request.formData();
-  } catch {
-    return json({ ok: false, error: "Invalid form data" }, 400);
+  } catch (err: any) {
+    const detail = err?.message ? String(err.message) : "Invalid form data";
+    return json({ ok: false, error: `Invalid form data: ${detail}` }, 400);
   }
 
   const filePart = form.get("file");
