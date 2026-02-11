@@ -458,6 +458,7 @@ async function loadFlow() {
     if (node.type === "message_fast_reply") {
       node.body = typeof node.body === "string" && node.body.trim() ? node.body : "Escolha uma opcao:";
       node.quick_replies = normalizeFastReplyOptions(node.quick_replies);
+      node.loop_until_match = node.loop_until_match === true;
     }
     if (node.type === "action") {
       if (node.action && typeof node.action === "object") {
@@ -2094,9 +2095,23 @@ function renderFastReplyMessageNode(node) {
     scheduleAutoSave();
   });
 
+  const loopWrap = document.createElement("label");
+  loopWrap.className = "flow-switch flow-fast-reply-loop";
+  const loopInput = document.createElement("input");
+  loopInput.type = "checkbox";
+  loopInput.checked = node.loop_until_match === true;
+  const loopSlider = document.createElement("span");
+  loopSlider.className = "flow-switch-slider";
+  const loopLabel = document.createElement("span");
+  loopLabel.className = "flow-switch-label";
+  loopLabel.textContent = "Loop ate clicar";
+  loopWrap.appendChild(loopInput);
+  loopWrap.appendChild(loopSlider);
+  loopWrap.appendChild(loopLabel);
+
   const hint = document.createElement("div");
   hint.className = "flow-fast-reply-hint";
-  hint.textContent = "Ate 3 botoes. Ao tocar, o usuario responde automaticamente no WhatsApp.";
+  hint.textContent = "Cada botao tem um caminho proprio. Se loop estiver ligado, o bloco repete ate a resposta bater com um botao.";
 
   const list = document.createElement("div");
   list.className = "flow-fast-reply-list";
@@ -2106,10 +2121,66 @@ function renderFastReplyMessageNode(node) {
   addButton.className = "ghost";
   addButton.textContent = "+ Adicionar botao";
 
+  const connectorIn = document.createElement("div");
+  connectorIn.className = "connector in";
+  connectorIn.title = "Entrada";
+  connectorIn.addEventListener("click", () => {
+    if (!linkFromId || linkFromId === node.id) return;
+    const branch = linkFromBranch || "default";
+    const exists = state.edges.some(
+      (edge) =>
+        edge.from === linkFromId &&
+        edge.to === node.id &&
+        (edge.branch || "default") === branch,
+    );
+    if (!exists) {
+      state.edges.push({ id: makeId("edge"), from: linkFromId, to: node.id, branch });
+      renderEdges();
+      scheduleAutoSave();
+    }
+    linkFromId = null;
+    resetLinking();
+  });
+
+  const rebuildOutputs = (options) => {
+    el.querySelectorAll(".connector.out.fr, .flow-branch-label.fr").forEach((item) => item.remove());
+    const total = Math.max(1, options.length);
+    const bottomStart = 18;
+    const step = 30;
+
+    options.forEach((option, index) => {
+      const branch = `fr_${index}`;
+      const bottom = bottomStart + (total - 1 - index) * step;
+
+      const connectorOut = document.createElement("div");
+      connectorOut.className = `connector out fr ${branch}`;
+      connectorOut.style.bottom = `${bottom}px`;
+      connectorOut.style.top = "auto";
+      connectorOut.style.transform = "none";
+      connectorOut.title = `Opcao ${index + 1}`;
+      connectorOut.addEventListener("click", () => {
+        linkFromId = node.id;
+        linkFromBranch = branch;
+        clearLinking();
+        el.classList.add("linking");
+      });
+
+      const branchLabel = document.createElement("span");
+      branchLabel.className = `flow-branch-label fr ${branch}`;
+      branchLabel.style.bottom = `${bottom + 3}px`;
+      branchLabel.style.top = "auto";
+      branchLabel.textContent = `${index + 1}: ${String(option || "").slice(0, 14)}`;
+
+      el.appendChild(connectorOut);
+      el.appendChild(branchLabel);
+    });
+  };
+
   const renderOptions = () => {
     node.quick_replies = normalizeFastReplyOptions(node.quick_replies);
     const options = [...node.quick_replies];
     el.style.minHeight = `${fastReplyNodeHeight(node)}px`;
+    body.style.paddingBottom = `${58 + Math.max(1, options.length) * 30}px`;
 
     list.innerHTML = "";
     options.forEach((option, index) => {
@@ -2154,7 +2225,13 @@ function renderFastReplyMessageNode(node) {
     });
 
     addButton.disabled = options.length >= 3;
+    rebuildOutputs(options);
   };
+
+  loopInput.addEventListener("change", () => {
+    node.loop_until_match = loopInput.checked;
+    scheduleAutoSave();
+  });
 
   addButton.addEventListener("click", () => {
     const current = normalizeFastReplyOptions(node.quick_replies);
@@ -2168,45 +2245,14 @@ function renderFastReplyMessageNode(node) {
   renderOptions();
 
   body.appendChild(textarea);
+  body.appendChild(loopWrap);
   body.appendChild(hint);
   body.appendChild(list);
   body.appendChild(addButton);
 
-  const connectorOut = document.createElement("div");
-  connectorOut.className = "connector out";
-  connectorOut.title = "Saida";
-  connectorOut.addEventListener("click", () => {
-    linkFromId = node.id;
-    linkFromBranch = "default";
-    clearLinking();
-    el.classList.add("linking");
-  });
-
-  const connectorIn = document.createElement("div");
-  connectorIn.className = "connector in";
-  connectorIn.title = "Entrada";
-  connectorIn.addEventListener("click", () => {
-    if (!linkFromId || linkFromId === node.id) return;
-    const branch = linkFromBranch || "default";
-    const exists = state.edges.some(
-      (edge) =>
-        edge.from === linkFromId &&
-        edge.to === node.id &&
-        (edge.branch || "default") === branch,
-    );
-    if (!exists) {
-      state.edges.push({ id: makeId("edge"), from: linkFromId, to: node.id, branch });
-      renderEdges();
-      scheduleAutoSave();
-    }
-    linkFromId = null;
-    resetLinking();
-  });
-
   el.appendChild(header);
   el.appendChild(body);
   el.appendChild(connectorIn);
-  el.appendChild(connectorOut);
   surface.appendChild(el);
   attachNodeInteractions(el, node);
   enableDrag(el, node);
@@ -2971,6 +3017,7 @@ function renderEdges() {
     let fromSelector = ".connector.out";
     if (branch === "yes") fromSelector = ".connector.out.yes";
     if (branch === "no") fromSelector = ".connector.out.no";
+    if (/^fr_\d+$/i.test(String(branch))) fromSelector = `.connector.out.${branch}`;
     const fromEl = surface.querySelector(`[data-node-id="${edge.from}"] ${fromSelector}`);
     const toEl = surface.querySelector(`[data-node-id="${edge.to}"] .connector.in`);
     if (!fromEl || !toEl) return;
@@ -3102,6 +3149,7 @@ function addBlockAt(type, x, y) {
   if (type === "message_fast_reply") {
     node.quick_replies = normalizeFastReplyOptions(node.quick_replies);
     node.body = typeof node.body === "string" && node.body.trim() ? node.body : "Escolha uma opcao:";
+    node.loop_until_match = false;
   }
   state.nodes.push(node);
   setSelectedNode(node.id);

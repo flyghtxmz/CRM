@@ -1512,6 +1512,22 @@ body.canva-page .topbar-actions {
   align-items: center;
 }
 
+.flow-fast-reply-loop {
+  margin-top: 0;
+}
+
+.flow-node-message-fast-reply .connector.out.fr {
+  background: #25d366;
+  border-color: #1aa55f;
+}
+
+.flow-node-message-fast-reply .flow-branch-label.fr {
+  right: 28px;
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .flow-fast-reply-row input {
   min-width: 0;
 }
@@ -2094,11 +2110,11 @@ body.canva-page .topbar-actions {
 }
 
 .flow-node-actions.flow-node-actions-wait-click {
-  min-height: 250px;
+  min-height: 278px;
 }
 
 .flow-node-actions.flow-node-actions-wait-click .flow-node-body {
-  padding-bottom: 78px;
+  padding-bottom: 108px;
 }
 
 .flow-node-actions.flow-node-actions-wait-click .flow-node-footer {
@@ -2106,25 +2122,25 @@ body.canva-page .topbar-actions {
 }
 
 .flow-node-actions.flow-node-actions-wait-click .connector.out.yes {
-  bottom: 58px;
+  bottom: 74px;
   transform: none;
 }
 
 .flow-node-actions.flow-node-actions-wait-click .connector.out.no {
-  bottom: 22px;
+  bottom: 32px;
   transform: none;
 }
 
 .flow-node-actions.flow-node-actions-wait-click .flow-branch-label {
-  right: 30px;
+  right: 34px;
 }
 
 .flow-node-actions.flow-node-actions-wait-click .flow-branch-label.yes {
-  bottom: 62px;
+  bottom: 78px;
 }
 
 .flow-node-actions.flow-node-actions-wait-click .flow-branch-label.no {
-  bottom: 26px;
+  bottom: 36px;
 }
 
 .flow-condition-edit {

@@ -69,6 +69,7 @@ type FlowNode = {
   audio_name?: string;
   audio_voice?: boolean;
   quick_replies?: string[];
+  loop_until_match?: boolean;
   linkMode?: string;
   linkFormat?: string;
   delay_value?: number;
@@ -119,6 +120,19 @@ type WaitReplyState = {
   created_at: number;
 };
 
+type WaitFastReplyState = {
+  id: string;
+  flow_id: string;
+  flow_name?: string;
+  wa_id: string;
+  node_id?: string;
+  options: string[];
+  next_by_option: string[];
+  loop_until_match?: boolean;
+  body?: string;
+  created_at: number;
+};
+
 type WaitClickState = {
   id: string;
   flow_id: string;
@@ -162,6 +176,7 @@ type FlowLinkMeta = {
 const FLOW_TRIGGER_DEBOUNCE_SEC = 10;
 const FLOW_DELAY_INDEX_KEY = "flow-delay-jobs:index";
 const FLOW_WAIT_REPLY_PREFIX = "flow-wait:";
+const FLOW_WAIT_FAST_REPLY_PREFIX = "flow-wait-fast-reply:";
 const FLOW_WAIT_CLICK_PREFIX = "flow-wait-click:";
 const FLOW_WAIT_CLICK_TIMEOUT_INDEX_KEY = "flow-wait-click-timeout:index";
 const FLOW_LAST_LINK_PREFIX = "flow-last-link:";
@@ -545,6 +560,10 @@ function newWaitReplyId() {
   return `wait:${Date.now()}_${Math.floor(Math.random() * 100000)}`;
 }
 
+function newWaitFastReplyId() {
+  return `wait_fast_reply:${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+}
+
 function newWaitClickId() {
   return `wait_click:${Date.now()}_${Math.floor(Math.random() * 100000)}`;
 }
@@ -555,6 +574,10 @@ function newWaitClickTimeoutJobId() {
 
 function waitReplyKey(waId: string) {
   return `${FLOW_WAIT_REPLY_PREFIX}${waId}`;
+}
+
+function waitFastReplyKey(waId: string) {
+  return `${FLOW_WAIT_FAST_REPLY_PREFIX}${waId}`;
 }
 
 function waitClickKey(waId: string) {
@@ -597,6 +620,46 @@ async function takeWaitReplyStates(kv: KVNamespace, waId: string) {
     await kv.delete(waitReplyKey(waId));
   }
   return items;
+}
+
+async function listWaitFastReplyStates(kv: KVNamespace, waId: string) {
+  const current = (await kv.get(waitFastReplyKey(waId), "json")) as WaitFastReplyState[] | WaitFastReplyState | null;
+  if (!current) return [] as WaitFastReplyState[];
+  if (Array.isArray(current)) {
+    return current.filter((item) => item && item.flow_id && Array.isArray(item.options) && Array.isArray(item.next_by_option));
+  }
+  if (typeof current === "object" && current.flow_id && Array.isArray((current as any).options)) {
+    return [current as WaitFastReplyState];
+  }
+  return [] as WaitFastReplyState[];
+}
+
+async function enqueueWaitFastReplyState(kv: KVNamespace, state: WaitFastReplyState) {
+  const current = await listWaitFastReplyStates(kv, state.wa_id);
+  const deduped = current.filter(
+    (item) =>
+      !(
+        String(item.flow_id || "") === String(state.flow_id || "") &&
+        String(item.node_id || "") === String(state.node_id || "")
+      ),
+  );
+  deduped.push(state);
+  if (deduped.length > 20) {
+    deduped.splice(0, deduped.length - 20);
+  }
+  await kv.put(waitFastReplyKey(state.wa_id), JSON.stringify(deduped), {
+    expirationTtl: WAIT_REPLY_TTL_SEC,
+  });
+}
+
+async function replaceWaitFastReplyStates(kv: KVNamespace, waId: string, states: WaitFastReplyState[]) {
+  if (!states.length) {
+    await kv.delete(waitFastReplyKey(waId));
+    return;
+  }
+  await kv.put(waitFastReplyKey(waId), JSON.stringify(states), {
+    expirationTtl: WAIT_REPLY_TTL_SEC,
+  });
 }
 
 async function listWaitClickStates(kv: KVNamespace, waId: string) {
@@ -1565,35 +1628,78 @@ async function runFlow(
         }
         if (node.type === "message_fast_reply") {
           const options = normalizeQuickReplyButtons(node.quick_replies);
-          if (!body || !options.length) {
+          const messageText = body || "Escolha uma opcao:";
+          if (!options.length) {
             logNotes.push(`msg:${node.id}:sem_fast_reply`);
-          } else {
-            let localId: string | null = null;
-            if (kv) {
-              const previewText = `${body} [${options.join(" | ")}]`.trim();
-              const local = await appendOutgoingMessage(kv, env, contact, previewText, "text");
-              localId = local.localId;
+            currentId = node.id;
+            edge = undefined;
+            continue;
+          }
+          if (!kv) {
+            logNotes.push(`msg:${node.id}:sem_kv`);
+            currentId = node.id;
+            edge = undefined;
+            continue;
+          }
+
+          const nextByOption = options.map((_, idx) => {
+            const branchEdge = findNextEdge(edges, node.id, `fr_${idx}`);
+            return String(branchEdge?.to || "").trim();
+          });
+          if (!nextByOption.some(Boolean)) {
+            const defaultEdge = findNextEdge(edges, node.id, "default");
+            if (defaultEdge?.to) nextByOption[0] = String(defaultEdge.to);
+          }
+          if (!nextByOption.some(Boolean)) {
+            logNotes.push(`msg:${node.id}:sem_saida_fast_reply`);
+            currentId = node.id;
+            edge = undefined;
+            continue;
+          }
+
+          let localId: string | null = null;
+          if (kv) {
+            const previewText = `${messageText} [${options.join(" | ")}]`.trim();
+            const local = await appendOutgoingMessage(kv, env, contact, previewText, "text");
+            localId = local.localId;
+          }
+
+          try {
+            const data: any = await sendFastReplyMessage(env, contact.wa_id, messageText, options);
+            if (kv && localId) {
+              await finalizeOutgoingMessage(
+                kv,
+                env,
+                contact.wa_id,
+                localId,
+                "sent",
+                data?.messages?.[0]?.id,
+              );
             }
-            try {
-              const data: any = await sendFastReplyMessage(env, contact.wa_id, body, options);
-              logNotes.push(`msg:${node.id}:ok`);
-              if (kv && localId) {
-                await finalizeOutgoingMessage(
-                  kv,
-                  env,
-                  contact.wa_id,
-                  localId,
-                  "sent",
-                  data?.messages?.[0]?.id,
-                );
-              }
-            } catch {
-              logNotes.push(`msg:${node.id}:falhou`);
-              if (kv && localId) {
-                await finalizeOutgoingMessage(kv, env, contact.wa_id, localId, "failed");
-              }
+            await enqueueWaitFastReplyState(kv, {
+              id: newWaitFastReplyId(),
+              flow_id: flow.id,
+              flow_name: flow.name,
+              wa_id: contact.wa_id,
+              node_id: node.id,
+              options,
+              next_by_option: nextByOption,
+              loop_until_match: node.loop_until_match === true,
+              body: messageText,
+              created_at: nowUnix(),
+            });
+            logNotes.push(`msg:${node.id}:ok`);
+            logNotes.push(`fast_reply_wait:${node.id}:ok`);
+          } catch {
+            logNotes.push(`msg:${node.id}:falhou`);
+            if (kv && localId) {
+              await finalizeOutgoingMessage(kv, env, contact.wa_id, localId, "failed");
             }
           }
+
+          currentId = node.id;
+          edge = undefined;
+          continue;
         } else if (node.type === "message_audio") {
           const audioUrl = String(node.audio_url || "").trim();
           const audioName = String(node.audio_name || "").trim();
@@ -2373,12 +2479,99 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       const inboundText = messageConditionText(message);
       let executedCount = 0;
       let logged = false;
-      const waitStates = await takeWaitReplyStates(kv, waId);
+      let waitReplyStatesCount = 0;
+      let fastReplyStatesCount = 0;
 
-      if (waitStates.length) {
-        for (const waitState of waitStates) {
+      const fastReplyStates = await listWaitFastReplyStates(kv, waId);
+      if (fastReplyStates.length) {
+        fastReplyStatesCount = fastReplyStates.length;
+        const pendingFastReplyStates: WaitFastReplyState[] = [];
+        const normalizedInbound = normalizeSearchText(inboundText || "");
+
+        for (const waitState of fastReplyStates) {
           const tagsBefore = [...(contactRecord.tags || [])];
-          const notes: string[] = [`wait:${waitState.id}:resume`];
+          const notes: string[] = [`fast_reply_wait:${waitState.id}:resume`];
+          const options = normalizeQuickReplyButtons(waitState.options);
+          const nextByOption = Array.isArray(waitState.next_by_option)
+            ? waitState.next_by_option.map((item) => String(item || "").trim())
+            : [];
+
+          let matchedIndex = -1;
+          for (let i = 0; i < options.length; i += 1) {
+            if (normalizeSearchText(options[i]) === normalizedInbound) {
+              matchedIndex = i;
+              break;
+            }
+          }
+
+          if (matchedIndex < 0) {
+            notes.push("fast_reply:sem_match");
+            if (waitState.loop_until_match) {
+              const loopBody = String(waitState.body || "").trim() || "Escolha uma opcao:";
+              if (options.length) {
+                let localId: string | null = null;
+                if (kv) {
+                  const previewText = `${loopBody} [${options.join(" | ")}]`.trim();
+                  const local = await appendOutgoingMessage(kv, env, contactRecord, previewText, "text");
+                  localId = local.localId;
+                }
+                try {
+                  const data: any = await sendFastReplyMessage(env, waId, loopBody, options);
+                  if (kv && localId) {
+                    await finalizeOutgoingMessage(
+                      kv,
+                      env,
+                      waId,
+                      localId,
+                      "sent",
+                      data?.messages?.[0]?.id,
+                    );
+                  }
+                  notes.push("fast_reply:loop:reenviado");
+                } catch {
+                  notes.push("fast_reply:loop:falhou");
+                  if (kv && localId) {
+                    await finalizeOutgoingMessage(kv, env, waId, localId, "failed");
+                  }
+                }
+              } else {
+                notes.push("fast_reply:loop:sem_opcoes");
+              }
+            }
+
+            pendingFastReplyStates.push(waitState);
+            appendFlowLog(logs, {
+              ts: Date.now(),
+              wa_id: waId,
+              flow_id: waitState.flow_id,
+              flow_name: waitState.flow_name || "(aguardo fast reply sem fluxo)",
+              trigger: "Aguardar fast reply",
+              tags_before: tagsBefore,
+              tags_after: [...(contactRecord.tags || [])],
+              notes,
+            });
+            logged = true;
+            continue;
+          }
+
+          notes.push(`fast_reply:opcao:${matchedIndex + 1}`);
+          const nextNodeId = String(nextByOption[matchedIndex] || "").trim();
+          if (!nextNodeId) {
+            notes.push("fast_reply:sem_saida");
+            appendFlowLog(logs, {
+              ts: Date.now(),
+              wa_id: waId,
+              flow_id: waitState.flow_id,
+              flow_name: waitState.flow_name || "(aguardo fast reply sem saida)",
+              trigger: "Aguardar fast reply",
+              tags_before: tagsBefore,
+              tags_after: [...(contactRecord.tags || [])],
+              notes,
+            });
+            logged = true;
+            continue;
+          }
+
           const flow = flows.find((item) => item.id === waitState.flow_id && item.enabled !== false);
           if (!flow) {
             notes.push("flow:nao_encontrado");
@@ -2386,8 +2579,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
               ts: Date.now(),
               wa_id: waId,
               flow_id: waitState.flow_id,
-              flow_name: waitState.flow_name || "(aguardo sem fluxo)",
-              trigger: "Aguardo de resposta",
+              flow_name: waitState.flow_name || "(aguardo fast reply sem fluxo)",
+              trigger: "Aguardar fast reply",
               tags_before: tagsBefore,
               tags_after: [...(contactRecord.tags || [])],
               notes,
@@ -2403,7 +2596,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
               contactRecord,
               notes,
               inboundText,
-              waitState.next_node_id,
+              nextNodeId,
             );
             if (executed) executedCount += 1;
             const tagsAfter = [...(contactRecord.tags || [])];
@@ -2413,7 +2606,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
                 wa_id: waId,
                 flow_id: flow.id,
                 flow_name: flow.name,
-                trigger: "Aguardo de resposta",
+                trigger: "Aguardar fast reply",
                 tags_before: tagsBefore,
                 tags_after: tagsAfter,
                 notes,
@@ -2426,8 +2619,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
               ts: Date.now(),
               wa_id: waId,
               flow_id: flow.id,
-              flow_name: flow.name || "(erro aguardo)",
-              trigger: "Aguardo de resposta",
+              flow_name: flow.name || "(erro fast reply)",
+              trigger: "Aguardar fast reply",
               tags_before: tagsBefore,
               tags_after: [...(contactRecord.tags || [])],
               notes: [...notes, `erro:${messageText.slice(0, 180)}`],
@@ -2435,55 +2628,42 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
             logged = true;
           }
         }
-      } else if (!flows.length) {
-        appendFlowLog(logs, {
-          ts: Date.now(),
-          wa_id: waId,
-          flow_name: "(nenhum fluxo)",
-          trigger: "Quando usuario enviar mensagem",
-          tags_before: [...(contactRecord.tags || [])],
-          tags_after: [...(contactRecord.tags || [])],
-          notes: ["flows:0"],
-        });
-        logged = true;
+
+        await replaceWaitFastReplyStates(kv, waId, pendingFastReplyStates);
       } else {
-        const triggerTs = toNumber(message.timestamp) || nowUnix();
-        const triggerContact = (await kv.get(`contact:${waId}`, "json")) as Contact | null;
-        const lastTriggerTs = toNumber(triggerContact?.last_flow_trigger_at);
-        const shouldRunFlow = triggerTs - lastTriggerTs > FLOW_TRIGGER_DEBOUNCE_SEC;
+        const waitStates = await takeWaitReplyStates(kv, waId);
+        waitReplyStatesCount = waitStates.length;
 
-        if (!shouldRunFlow) {
-          appendFlowLog(logs, {
-            ts: Date.now(),
-            wa_id: waId,
-            flow_name: "(gatilho ignorado)",
-            trigger: "Quando usuario enviar mensagem",
-            tags_before: [...(contactRecord.tags || [])],
-            tags_after: [...(contactRecord.tags || [])],
-            notes: [
-              `debounce:${FLOW_TRIGGER_DEBOUNCE_SEC}s`,
-              `last_trigger:${lastTriggerTs}`,
-            ],
-          });
-          logged = true;
-        } else {
-          contactRecord.last_flow_trigger_at = triggerTs;
-          contactRecord.last_flow_trigger_msg_id = message.id || "";
+        if (waitStates.length) {
+          for (const waitState of waitStates) {
+            const tagsBefore = [...(contactRecord.tags || [])];
+            const notes: string[] = [`wait:${waitState.id}:resume`];
+            const flow = flows.find((item) => item.id === waitState.flow_id && item.enabled !== false);
+            if (!flow) {
+              notes.push("flow:nao_encontrado");
+              appendFlowLog(logs, {
+                ts: Date.now(),
+                wa_id: waId,
+                flow_id: waitState.flow_id,
+                flow_name: waitState.flow_name || "(aguardo sem fluxo)",
+                trigger: "Aguardo de resposta",
+                tags_before: tagsBefore,
+                tags_after: [...(contactRecord.tags || [])],
+                notes,
+              });
+              logged = true;
+              continue;
+            }
 
-          // Persist trigger marker before flow run to avoid duplicate trigger in burst.
-          contactRecord = upsertContactList(contactList, contactRecord);
-          await kv.put(`contact:${waId}`, JSON.stringify(contactRecord));
-          try {
-            await dbUpsertContact(env, contactRecord);
-          } catch {
-            // keep webhook resilient if D1 contact upsert fails
-          }
-
-          try {
-            for (const flow of flows) {
-              const tagsBefore = [...(contactRecord.tags || [])];
-              const notes: string[] = [];
-              const executed = await runFlow(env, flow, contactRecord, notes, inboundText);
+            try {
+              const executed = await runFlow(
+                env,
+                flow,
+                contactRecord,
+                notes,
+                inboundText,
+                waitState.next_node_id,
+              );
               if (executed) executedCount += 1;
               const tagsAfter = [...(contactRecord.tags || [])];
               if (notes.length || tagsBefore.join(",") !== tagsAfter.join(",")) {
@@ -2491,36 +2671,122 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
                   ts: Date.now(),
                   wa_id: waId,
                   flow_id: flow.id,
-                  flow_name: (flow as any)?.name,
-                  trigger: "Quando usuario enviar mensagem",
+                  flow_name: flow.name,
+                  trigger: "Aguardo de resposta",
                   tags_before: tagsBefore,
                   tags_after: tagsAfter,
                   notes,
                 });
                 logged = true;
               }
+            } catch (err) {
+              const messageText = err instanceof Error ? err.message : String(err || "erro");
+              appendFlowLog(logs, {
+                ts: Date.now(),
+                wa_id: waId,
+                flow_id: flow.id,
+                flow_name: flow.name || "(erro aguardo)",
+                trigger: "Aguardo de resposta",
+                tags_before: tagsBefore,
+                tags_after: [...(contactRecord.tags || [])],
+                notes: [...notes, `erro:${messageText.slice(0, 180)}`],
+              });
+              logged = true;
             }
-          } catch (err) {
-            const messageText = err instanceof Error ? err.message : String(err || "erro");
+          }
+        } else if (!flows.length) {
+          appendFlowLog(logs, {
+            ts: Date.now(),
+            wa_id: waId,
+            flow_name: "(nenhum fluxo)",
+            trigger: "Quando usuario enviar mensagem",
+            tags_before: [...(contactRecord.tags || [])],
+            tags_after: [...(contactRecord.tags || [])],
+            notes: ["flows:0"],
+          });
+          logged = true;
+        } else {
+          const triggerTs = toNumber(message.timestamp) || nowUnix();
+          const triggerContact = (await kv.get(`contact:${waId}`, "json")) as Contact | null;
+          const lastTriggerTs = toNumber(triggerContact?.last_flow_trigger_at);
+          const shouldRunFlow = triggerTs - lastTriggerTs > FLOW_TRIGGER_DEBOUNCE_SEC;
+
+          if (!shouldRunFlow) {
             appendFlowLog(logs, {
               ts: Date.now(),
               wa_id: waId,
-              flow_name: "(erro fluxo)",
+              flow_name: "(gatilho ignorado)",
               trigger: "Quando usuario enviar mensagem",
               tags_before: [...(contactRecord.tags || [])],
               tags_after: [...(contactRecord.tags || [])],
-              notes: [`erro:${messageText.slice(0, 180)}`],
+              notes: [
+                `debounce:${FLOW_TRIGGER_DEBOUNCE_SEC}s`,
+                `last_trigger:${lastTriggerTs}`,
+              ],
             });
             logged = true;
+          } else {
+            contactRecord.last_flow_trigger_at = triggerTs;
+            contactRecord.last_flow_trigger_msg_id = message.id || "";
+
+            // Persist trigger marker before flow run to avoid duplicate trigger in burst.
+            contactRecord = upsertContactList(contactList, contactRecord);
+            await kv.put(`contact:${waId}`, JSON.stringify(contactRecord));
+            try {
+              await dbUpsertContact(env, contactRecord);
+            } catch {
+              // keep webhook resilient if D1 contact upsert fails
+            }
+
+            try {
+              for (const flow of flows) {
+                const tagsBefore = [...(contactRecord.tags || [])];
+                const notes: string[] = [];
+                const executed = await runFlow(env, flow, contactRecord, notes, inboundText);
+                if (executed) executedCount += 1;
+                const tagsAfter = [...(contactRecord.tags || [])];
+                if (notes.length || tagsBefore.join(",") !== tagsAfter.join(",")) {
+                  appendFlowLog(logs, {
+                    ts: Date.now(),
+                    wa_id: waId,
+                    flow_id: flow.id,
+                    flow_name: (flow as any)?.name,
+                    trigger: "Quando usuario enviar mensagem",
+                    tags_before: tagsBefore,
+                    tags_after: tagsAfter,
+                    notes,
+                  });
+                  logged = true;
+                }
+              }
+            } catch (err) {
+              const messageText = err instanceof Error ? err.message : String(err || "erro");
+              appendFlowLog(logs, {
+                ts: Date.now(),
+                wa_id: waId,
+                flow_name: "(erro fluxo)",
+                trigger: "Quando usuario enviar mensagem",
+                tags_before: [...(contactRecord.tags || [])],
+                tags_after: [...(contactRecord.tags || [])],
+                notes: [`erro:${messageText.slice(0, 180)}`],
+              });
+              logged = true;
+            }
           }
         }
       }
 
       if (!logged) {
-        const triggerLabel = waitStates.length ? "Aguardo de resposta" : "Quando usuario enviar mensagem";
-        const summaryNotes = waitStates.length
-          ? [`esperas:${waitStates.length}`, `executados:${executedCount}`]
-          : [`flows:${flows.length}`, `executados:${executedCount}`];
+        const triggerLabel = fastReplyStatesCount > 0
+          ? "Aguardar fast reply"
+          : waitReplyStatesCount > 0
+            ? "Aguardo de resposta"
+            : "Quando usuario enviar mensagem";
+        const summaryNotes = fastReplyStatesCount > 0
+          ? [`esperas_fast_reply:${fastReplyStatesCount}`, `executados:${executedCount}`]
+          : waitReplyStatesCount > 0
+            ? [`esperas:${waitReplyStatesCount}`, `executados:${executedCount}`]
+            : [`flows:${flows.length}`, `executados:${executedCount}`];
         appendFlowLog(logs, {
           ts: Date.now(),
           wa_id: waId,
