@@ -1,4 +1,4 @@
-﻿const logoutButton = document.getElementById("logout");
+const logoutButton = document.getElementById("logout");
 const saveButton = document.getElementById("save-flow");
 const exportButton = document.getElementById("export-flow");
 const resetButton = document.getElementById("reset-flow");
@@ -530,9 +530,11 @@ function normalizeRule(rule) {
     };
   }
   if (rule.type === "message_contains") {
+    const mergedKeywords = getMessageContainsKeywords(rule);
     return {
       type: "message_contains",
-      keyword: String(rule.keyword || rule.value || "").trim(),
+      keyword: mergedKeywords[0] || "",
+      keywords: mergedKeywords,
     };
   }
   if (rule.label) {
@@ -548,8 +550,8 @@ function formatRule(rule) {
     return `Tag ${opLabel} ${rule.tag || ""}`.trim();
   }
   if (rule.type === "message_contains") {
-    const keyword = String(rule.keyword || "").trim();
-    return keyword ? `Mensagem contem: ${keyword}` : "Mensagem contem";
+    const merged = getMessageContainsKeywords(rule);
+    return merged.length ? `Mensagem contem: ${merged.join(" OU ")}` : "Mensagem contem";
   }
   return rule.label || "";
 }
@@ -585,6 +587,15 @@ function uniqueStrings(list) {
     output.push(item);
   });
   return output;
+}
+
+function getMessageContainsKeywords(rule) {
+  if (!rule) return [];
+  const keywords = Array.isArray(rule.keywords)
+    ? uniqueStrings(rule.keywords.map((item) => String(item || "").trim()).filter(Boolean))
+    : [];
+  const fallback = String(rule.keyword || rule.value || "").trim();
+  return uniqueStrings([...(keywords || []), ...(fallback ? [fallback] : [])]);
 }
 
 function collectTagsFromNodes(nodes) {
@@ -801,10 +812,30 @@ function renderTags() {
   return;
 }
 
+function conditionNodeMinHeight(node) {
+  const baseHeight = 230;
+  const rules = Array.isArray(node?.rules) ? node.rules : [];
+  if (!rules.length) return baseHeight;
+  const rule = normalizeRule(rules[0]);
+  if (!rule) return baseHeight;
+
+  const labelText = formatRule(rule);
+  const textLines = Math.max(1, Math.ceil(labelText.length / 30));
+
+  let logicalLines = textLines;
+  if (rule.type === "message_contains") {
+    const keywords = getMessageContainsKeywords(rule);
+    logicalLines = Math.max(logicalLines, keywords.length || 1);
+  }
+
+  const extraLines = Math.max(0, logicalLines - 1);
+  return baseHeight + extraLines * 24;
+}
+
 function nodeSize(node) {
   const type = String(node?.type || "");
   if (type === "start") return { width: 320, height: 210 };
-  if (type === "condition") return { width: 300, height: 230 };
+  if (type === "condition") return { width: 300, height: conditionNodeMinHeight(node) };
   if (type === "action") return { width: 300, height: 220 };
   if (type === "delay") return { width: 320, height: 190 };
   if (type === "message_image") return { width: 300, height: 360 };
@@ -1138,7 +1169,7 @@ function renderConditionNode(node) {
   el.dataset.nodeId = node.id;
   el.style.left = `${node.x}px`;
   el.style.top = `${node.y}px`;
-
+  el.style.minHeight = `${conditionNodeMinHeight(node)}px`;
   const header = document.createElement("div");
   header.className = "flow-node-header flow-condition-header";
   const icon = document.createElement("span");
@@ -1319,23 +1350,66 @@ function renderConditionNode(node) {
 
   const messagePanel = document.createElement("div");
   messagePanel.className = "condition-message-panel";
-  const messageInput = document.createElement("input");
-  messageInput.type = "text";
-  messageInput.placeholder = "Digite a palavra-chave (ex: abacate)";
+  const messageList = document.createElement("div");
+  messageList.className = "condition-message-list";
+
+  const createMessageKeywordInput = (value = "") => {
+    const row = document.createElement("div");
+    row.className = "condition-message-row";
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.placeholder = "Digite a frase (ex: gosto de abacate)";
+    input.value = String(value || "");
+    row.appendChild(input);
+
+    const removeBtn = document.createElement("button");
+    removeBtn.type = "button";
+    removeBtn.className = "ghost condition-message-remove";
+    removeBtn.textContent = "x";
+    removeBtn.title = "Remover";
+    removeBtn.addEventListener("click", () => {
+      row.remove();
+      if (!messageList.querySelector("input")) {
+        messageList.appendChild(createMessageKeywordInput(""));
+      }
+    });
+    row.appendChild(removeBtn);
+    return row;
+  };
+
+  const readMessageKeywords = () =>
+    uniqueStrings(
+      Array.from(messageList.querySelectorAll("input"))
+        .map((input) => String(input.value || "").trim())
+        .filter(Boolean),
+    );
 
   const messageActions = document.createElement("div");
   messageActions.className = "condition-message-actions";
+  const addOrBtn = document.createElement("button");
+  addOrBtn.type = "button";
+  addOrBtn.className = "ghost";
+  addOrBtn.textContent = "+ OU";
+  addOrBtn.addEventListener("click", () => {
+    messageList.appendChild(createMessageKeywordInput(""));
+    const inputs = messageList.querySelectorAll("input");
+    const lastInput = inputs[inputs.length - 1];
+    if (lastInput) lastInput.focus();
+  });
+
   const messageSave = document.createElement("button");
   messageSave.type = "button";
   messageSave.textContent = "Aplicar";
 
   const applyMessageRule = () => {
-    const keyword = messageInput.value.trim();
-    if (!keyword) {
-      messageInput.focus();
+    const keywords = readMessageKeywords();
+    if (!keywords.length) {
+      const firstInput = messageList.querySelector("input");
+      if (firstInput) firstInput.focus();
       return;
     }
-    node.rules = [{ type: "message_contains", keyword }];
+    node.rules = [{ type: "message_contains", keyword: keywords[0], keywords }];
     popup.classList.remove("open");
     renderAll();
     scheduleAutoSave();
@@ -1343,24 +1417,42 @@ function renderConditionNode(node) {
   };
 
   messageSave.addEventListener("click", applyMessageRule);
-  messageInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      applyMessageRule();
-    }
+  messagePanel.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement)) return;
+    event.preventDefault();
+    applyMessageRule();
   });
 
+  messageActions.appendChild(addOrBtn);
   messageActions.appendChild(messageSave);
-  messagePanel.appendChild(messageInput);
+  messagePanel.appendChild(messageList);
   messagePanel.appendChild(messageActions);
   messageView.appendChild(messageHeader);
   messageView.appendChild(messagePanel);
 
   messageOption.addEventListener("click", () => {
     const current = Array.isArray(node.rules) ? node.rules[0] : null;
-    messageInput.value = current?.type === "message_contains" ? String(current.keyword || "") : "";
+    let currentKeywords = [];
+    if (current?.type === "message_contains") {
+      const rawList = Array.isArray(current.keywords)
+        ? current.keywords.map((item) => String(item || "").trim()).filter(Boolean)
+        : [];
+      const fallback = String(current.keyword || "").trim();
+      currentKeywords = uniqueStrings([...(rawList || []), ...(fallback ? [fallback] : [])]);
+    }
+    messageList.innerHTML = "";
+    if (!currentKeywords.length) {
+      messageList.appendChild(createMessageKeywordInput(""));
+    } else {
+      currentKeywords.forEach((keyword) => {
+        messageList.appendChild(createMessageKeywordInput(keyword));
+      });
+    }
     popup.dataset.view = "message";
-    messageInput.focus();
+    const firstInput = messageList.querySelector("input");
+    if (firstInput) firstInput.focus();
   });
 
   popup.appendChild(popupHeader);
@@ -3132,24 +3224,3 @@ document.addEventListener("keyup", (event) => {
     if (flowCanvas) flowCanvas.classList.remove("pan-ready");
   }
 });
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

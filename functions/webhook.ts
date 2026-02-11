@@ -52,7 +52,7 @@ type FlowNode = {
   x?: number;
   y?: number;
   trigger?: string;
-  rules?: Array<{ type?: string; op?: string; tag?: string; keyword?: string; value?: string }>;
+  rules?: Array<{ type?: string; op?: string; tag?: string; keyword?: string; keywords?: string[]; value?: string }>;
   action?: {
     type?: string;
     tag?: string;
@@ -905,9 +905,13 @@ function evaluateCondition(node: FlowNode, contact: Contact, inboundText = "") {
       return tags.has(rule.tag);
     }
     if (rule.type === "message_contains") {
-      const keyword = normalizeSearchText(rule.keyword || rule.value || "");
-      if (!keyword) return false;
-      return normalizedInboundText.includes(keyword);
+      const rawKeywords = Array.isArray(rule.keywords)
+        ? rule.keywords.map((item) => normalizeSearchText(item || "")).filter(Boolean)
+        : [];
+      const fallback = normalizeSearchText(rule.keyword || rule.value || "");
+      const keywords = Array.from(new Set([...(rawKeywords || []), ...(fallback ? [fallback] : [])]));
+      if (!keywords.length) return false;
+      return keywords.some((keyword) => normalizedInboundText.includes(keyword));
     }
     return false;
   });
