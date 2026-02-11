@@ -662,7 +662,12 @@ function formatDelaySummary(value, unit) {
 }
 
 function messageBlockNameForNode(nodeId) {
-  const order = Number(messageBlockOrderCache.get(String(nodeId || "")) || 0);
+  const key = String(nodeId || "");
+  let order = Number(messageBlockOrderCache.get(key) || 0);
+  if (!order && key) {
+    messageBlockOrderCache = computeMessageBlockOrderMap();
+    order = Number(messageBlockOrderCache.get(key) || 0);
+  }
   return order > 0 ? `Bloco ${order}` : "";
 }
 
@@ -3397,3 +3402,4 @@ document.addEventListener("keyup", (event) => {
     if (flowCanvas) flowCanvas.classList.remove("pan-ready");
   }
 });
+
