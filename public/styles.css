@@ -909,6 +909,27 @@ body.canva-page .topbar-actions {
   border-color: var(--accent);
   color: var(--accent-dark);
 }
+.block-picker-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+
+.block-picker-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.block-picker button.block-picker-back {
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.block-picker button.block-picker-group {
+  font-weight: 700;
+}
 
 .condition-popup {
   position: absolute;

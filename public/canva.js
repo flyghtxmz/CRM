@@ -262,26 +262,28 @@ async function uploadAudioAsset(file, name) {
 
 const blockPresets = {
   start: { title: "Quando", body: "" },
-  message: { title: "Mensagem", body: "Texto da mensagem" },
+  message: { title: "Mensagem Normal", body: "Texto da mensagem" },
   message_link: { title: "Mensagem com link", body: "Texto da mensagem", url: "" },
   message_short: { title: "Mensagem com link curto", body: "Texto da mensagem", url: "" },
   message_image: { title: "Mensagem com imagem + link", body: "Legenda da imagem", url: "", image: "" },
   message_audio: { title: "Mensagem de audio", body: "", audio_source: "existing", audio_id: "", audio_url: "", audio_name: "", audio_voice: true },
   message_fast_reply: { title: "Mensagem Fast Reply", body: "Escolha uma opcao:", quick_replies: ["Quero saber mais", "Falar com atendente"] },
-  question: { title: "Pergunta", body: "Pergunta para o cliente" },
   delay: { title: "Delay", body: "Esperar" },
   condition: { title: "Condicao", body: "" },
   action: { title: "Acoes", body: "" },
 };
 
-const blockOptions = [
-  { type: "message", label: "Mensagem" },
+const messageBlockOptions = [
+  { type: "message", label: "Mensagem Normal" },
   { type: "message_link", label: "Mensagem com link" },
   { type: "message_short", label: "Mensagem com link curto" },
   { type: "message_image", label: "Mensagem com imagem + link" },
   { type: "message_audio", label: "Mensagem de audio" },
   { type: "message_fast_reply", label: "Mensagem Fast Reply" },
-  { type: "question", label: "Pergunta" },
+];
+
+const blockOptions = [
+  { type: "message_types", label: "Tipos de Mensagens", kind: "group" },
   { type: "delay", label: "Delay" },
   { type: "condition", label: "Condicao" },
   { type: "action", label: "Acoes" },
@@ -2879,7 +2881,7 @@ function renderNodes() {
     const header = document.createElement("div");
     header.className = "flow-node-header";
     if (node.type === "message") {
-      appendMessageHeaderTitle(header, node, "Mensagem");
+      appendMessageHeaderTitle(header, node, "Mensagem Normal");
     } else {
       const title = document.createElement("input");
       title.type = "text";
@@ -3161,27 +3163,82 @@ function addBlock(type) {
   addBlockAt(type, 160 + state.nodes.length * 40, 140 + state.nodes.length * 20);
 }
 
-function buildBlockPicker() {
+function getBlockPickerCoordinates() {
+  if (!blockPicker) return { x: 160, y: 140 };
+  return {
+    x: Number(blockPicker.dataset.nodeX || "160"),
+    y: Number(blockPicker.dataset.nodeY || "140"),
+  };
+}
+
+function renderBlockPickerView(view) {
   if (!blockPicker) return;
+  const nextView = view === "messages" ? "messages" : "root";
+  blockPicker.dataset.view = nextView;
   blockPicker.innerHTML = "";
-  blockOptions.forEach((option) => {
+
+  const addOptionButton = (option) => {
     const button = document.createElement("button");
     button.type = "button";
     button.textContent = option.label;
     button.addEventListener("click", () => {
-      const x = Number(blockPicker.dataset.nodeX || "160");
-      const y = Number(blockPicker.dataset.nodeY || "140");
-      addBlockAt(option.type, x, y);
+      const coords = getBlockPickerCoordinates();
+      addBlockAt(option.type, coords.x, coords.y);
       closeBlockPicker();
     });
     blockPicker.appendChild(button);
+  };
+
+  if (nextView === "messages") {
+    const header = document.createElement("div");
+    header.className = "block-picker-header";
+
+    const backButton = document.createElement("button");
+    backButton.type = "button";
+    backButton.className = "ghost block-picker-back";
+    backButton.textContent = "Voltar";
+    backButton.addEventListener("click", () => {
+      renderBlockPickerView("root");
+    });
+
+    const title = document.createElement("span");
+    title.className = "block-picker-title";
+    title.textContent = "Tipos de Mensagens";
+
+    header.appendChild(backButton);
+    header.appendChild(title);
+    blockPicker.appendChild(header);
+
+    messageBlockOptions.forEach(addOptionButton);
+    return;
+  }
+
+  blockOptions.forEach((option) => {
+    if (option.kind === "group" && option.type === "message_types") {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "block-picker-group";
+      button.textContent = `${option.label} >`;
+      button.addEventListener("click", () => {
+        renderBlockPickerView("messages");
+      });
+      blockPicker.appendChild(button);
+      return;
+    }
+    addOptionButton(option);
   });
+}
+
+function buildBlockPicker() {
+  if (!blockPicker) return;
+  renderBlockPickerView("root");
 }
 
 function openBlockPicker(rawX, rawY, nodeX, nodeY) {
   if (!blockPicker) return;
   blockPicker.dataset.nodeX = String(nodeX);
   blockPicker.dataset.nodeY = String(nodeY);
+  renderBlockPickerView("root");
   blockPicker.style.left = `${rawX}px`;
   blockPicker.style.top = `${rawY}px`;
   blockPicker.classList.add("open");
