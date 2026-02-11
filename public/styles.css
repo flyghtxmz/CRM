@@ -1486,6 +1486,35 @@ body.canva-page .topbar-actions {
   color: var(--muted);
 }
 
+.flow-node-message-fast-reply {
+  width: 320px;
+}
+
+.flow-fast-reply-body {
+  display: grid;
+  gap: 8px;
+}
+
+.flow-fast-reply-hint {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.flow-fast-reply-list {
+  display: grid;
+  gap: 6px;
+}
+
+.flow-fast-reply-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.flow-fast-reply-row input {
+  min-width: 0;
+}
 .flow-node-message-audio {
   width: 320px;
 }

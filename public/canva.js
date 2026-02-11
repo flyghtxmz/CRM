@@ -267,6 +267,7 @@ const blockPresets = {
   message_short: { title: "Mensagem com link curto", body: "Texto da mensagem", url: "" },
   message_image: { title: "Mensagem com imagem + link", body: "Legenda da imagem", url: "", image: "" },
   message_audio: { title: "Mensagem de audio", body: "", audio_source: "existing", audio_id: "", audio_url: "", audio_name: "", audio_voice: true },
+  message_fast_reply: { title: "Mensagem Fast Reply", body: "Escolha uma opcao:", quick_replies: ["Quero saber mais", "Falar com atendente"] },
   question: { title: "Pergunta", body: "Pergunta para o cliente" },
   delay: { title: "Delay", body: "Esperar" },
   condition: { title: "Condicao", body: "" },
@@ -279,12 +280,13 @@ const blockOptions = [
   { type: "message_short", label: "Mensagem com link curto" },
   { type: "message_image", label: "Mensagem com imagem + link" },
   { type: "message_audio", label: "Mensagem de audio" },
+  { type: "message_fast_reply", label: "Mensagem Fast Reply" },
   { type: "question", label: "Pergunta" },
   { type: "delay", label: "Delay" },
   { type: "condition", label: "Condicao" },
   { type: "action", label: "Acoes" },
 ];
-const MESSAGE_NODE_TYPES = new Set(["message", "message_link", "message_short", "message_image", "message_audio"]);
+const MESSAGE_NODE_TYPES = new Set(["message", "message_link", "message_short", "message_image", "message_audio", "message_fast_reply"]);
 
 function makeId(prefix) {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
@@ -452,6 +454,10 @@ async function loadFlow() {
       node.audio_name = typeof node.audio_name === "string" ? node.audio_name : "";
       node.audio_voice = node.audio_voice !== false;
       node.body = typeof node.body === "string" ? node.body : "";
+    }
+    if (node.type === "message_fast_reply") {
+      node.body = typeof node.body === "string" && node.body.trim() ? node.body : "Escolha uma opcao:";
+      node.quick_replies = normalizeFastReplyOptions(node.quick_replies);
     }
     if (node.type === "action") {
       if (node.action && typeof node.action === "object") {
@@ -636,6 +642,15 @@ function normalizeWaitClickValue(value) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return 30;
   return Math.max(1, Math.floor(parsed));
+}
+
+function normalizeFastReplyOptions(value) {
+  const source = Array.isArray(value) ? value : [];
+  const cleaned = uniqueStrings(
+    source.map((item) => String(item || "").trim()).filter(Boolean),
+  ).slice(0, 3);
+  if (cleaned.length) return cleaned;
+  return ["Quero saber mais", "Falar com atendente"];
 }
 
 function formatDelaySummary(value, unit) {
@@ -832,6 +847,11 @@ function conditionNodeMinHeight(node) {
   return baseHeight + extraLines * 24;
 }
 
+function fastReplyNodeHeight(node) {
+  const options = normalizeFastReplyOptions(node?.quick_replies);
+  return 300 + Math.max(0, options.length - 2) * 34;
+}
+
 function nodeSize(node) {
   const type = String(node?.type || "");
   if (type === "start") return { width: 320, height: 210 };
@@ -840,6 +860,7 @@ function nodeSize(node) {
   if (type === "delay") return { width: 320, height: 190 };
   if (type === "message_image") return { width: 300, height: 360 };
   if (type === "message_audio") return { width: 320, height: 320 };
+  if (type === "message_fast_reply") return { width: 320, height: fastReplyNodeHeight(node) };
   if (type === "message_short" || type === "message_link") return { width: 300, height: 300 };
   return { width: 260, height: 220 };
 }
@@ -1726,7 +1747,7 @@ function renderActionNode(node) {
 
   const timeoutHint = document.createElement("div");
   timeoutHint.className = "hint";
-  timeoutHint.textContent = "Saidas: Clicou (imediato) e Nao clicou (apÃ³s prazo).";
+  timeoutHint.textContent = "Saidas: Clicou (imediato) e Nao clicou (apos prazo).";
 
   const waitClickSave = document.createElement("button");
   waitClickSave.type = "button";
@@ -2041,6 +2062,150 @@ function renderLinkMessageNode(node) {
   enableDrag(el, node);
 }
 
+function renderFastReplyMessageNode(node) {
+  if (!surface) return;
+  const el = document.createElement("div");
+  el.className = "flow-node flow-node-message-link flow-node-message-fast-reply";
+  el.dataset.nodeId = node.id;
+  el.style.left = `${node.x}px`;
+  el.style.top = `${node.y}px`;
+  el.style.minHeight = `${fastReplyNodeHeight(node)}px`;
+
+  const header = document.createElement("div");
+  header.className = "flow-node-header";
+  appendMessageHeaderTitle(header, node, "Mensagem Fast Reply");
+  const deleteBtn = createDeleteButton(node);
+  if (deleteBtn) header.appendChild(deleteBtn);
+
+  const body = document.createElement("div");
+  body.className = "flow-node-body flow-fast-reply-body";
+
+  const textarea = document.createElement("textarea");
+  textarea.rows = 3;
+  textarea.placeholder = "Texto da mensagem";
+  textarea.value = node.body || "";
+  textarea.addEventListener("change", () => {
+    node.body = textarea.value;
+    scheduleAutoSave();
+  });
+
+  const hint = document.createElement("div");
+  hint.className = "flow-fast-reply-hint";
+  hint.textContent = "Ate 3 botoes. Ao tocar, o usuario responde automaticamente no WhatsApp.";
+
+  const list = document.createElement("div");
+  list.className = "flow-fast-reply-list";
+
+  const addButton = document.createElement("button");
+  addButton.type = "button";
+  addButton.className = "ghost";
+  addButton.textContent = "+ Adicionar botao";
+
+  const renderOptions = () => {
+    node.quick_replies = normalizeFastReplyOptions(node.quick_replies);
+    const options = [...node.quick_replies];
+    el.style.minHeight = `${fastReplyNodeHeight(node)}px`;
+
+    list.innerHTML = "";
+    options.forEach((option, index) => {
+      const row = document.createElement("div");
+      row.className = "flow-fast-reply-row";
+
+      const input = document.createElement("input");
+      input.type = "text";
+      input.maxLength = 20;
+      input.value = option;
+      input.placeholder = `Botao ${index + 1}`;
+      input.addEventListener("change", () => {
+        const value = String(input.value || "").trim();
+        if (!value) {
+          input.value = options[index] || `Opcao ${index + 1}`;
+          return;
+        }
+        const next = [...options];
+        next[index] = value;
+        node.quick_replies = normalizeFastReplyOptions(next);
+        renderOptions();
+        scheduleAutoSave();
+      });
+
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "ghost";
+      remove.textContent = "x";
+      remove.title = "Remover";
+      remove.disabled = options.length <= 1;
+      remove.addEventListener("click", () => {
+        if (options.length <= 1) return;
+        const next = options.filter((_, i) => i !== index);
+        node.quick_replies = normalizeFastReplyOptions(next);
+        renderOptions();
+        scheduleAutoSave();
+      });
+
+      row.appendChild(input);
+      row.appendChild(remove);
+      list.appendChild(row);
+    });
+
+    addButton.disabled = options.length >= 3;
+  };
+
+  addButton.addEventListener("click", () => {
+    const current = normalizeFastReplyOptions(node.quick_replies);
+    if (current.length >= 3) return;
+    const next = [...current, `Opcao ${current.length + 1}`];
+    node.quick_replies = normalizeFastReplyOptions(next);
+    renderOptions();
+    scheduleAutoSave();
+  });
+
+  renderOptions();
+
+  body.appendChild(textarea);
+  body.appendChild(hint);
+  body.appendChild(list);
+  body.appendChild(addButton);
+
+  const connectorOut = document.createElement("div");
+  connectorOut.className = "connector out";
+  connectorOut.title = "Saida";
+  connectorOut.addEventListener("click", () => {
+    linkFromId = node.id;
+    linkFromBranch = "default";
+    clearLinking();
+    el.classList.add("linking");
+  });
+
+  const connectorIn = document.createElement("div");
+  connectorIn.className = "connector in";
+  connectorIn.title = "Entrada";
+  connectorIn.addEventListener("click", () => {
+    if (!linkFromId || linkFromId === node.id) return;
+    const branch = linkFromBranch || "default";
+    const exists = state.edges.some(
+      (edge) =>
+        edge.from === linkFromId &&
+        edge.to === node.id &&
+        (edge.branch || "default") === branch,
+    );
+    if (!exists) {
+      state.edges.push({ id: makeId("edge"), from: linkFromId, to: node.id, branch });
+      renderEdges();
+      scheduleAutoSave();
+    }
+    linkFromId = null;
+    resetLinking();
+  });
+
+  el.appendChild(header);
+  el.appendChild(body);
+  el.appendChild(connectorIn);
+  el.appendChild(connectorOut);
+  surface.appendChild(el);
+  attachNodeInteractions(el, node);
+  enableDrag(el, node);
+}
 function renderAudioMessageNode(node) {
   if (!surface) return;
   const el = document.createElement("div");
@@ -2646,6 +2811,10 @@ function renderNodes() {
       renderImageMessageNode(node);
       return;
     }
+    if (node.type === "message_fast_reply") {
+      renderFastReplyMessageNode(node);
+      return;
+    }
     if (node.type === "message_audio") {
       renderAudioMessageNode(node);
       return;
@@ -2924,6 +3093,10 @@ function addBlockAt(type, x, y) {
     node.audio_url = "";
     node.audio_name = "";
     node.audio_voice = true;
+  }
+  if (type === "message_fast_reply") {
+    node.quick_replies = normalizeFastReplyOptions(node.quick_replies);
+    node.body = typeof node.body === "string" && node.body.trim() ? node.body : "Escolha uma opcao:";
   }
   state.nodes.push(node);
   setSelectedNode(node.id);

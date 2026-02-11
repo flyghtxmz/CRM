@@ -68,6 +68,7 @@ type FlowNode = {
   audio_url?: string;
   audio_name?: string;
   audio_voice?: boolean;
+  quick_replies?: string[];
   linkMode?: string;
   linkFormat?: string;
   delay_value?: number;
@@ -379,7 +380,8 @@ function isMessageNodeType(type: string) {
     type === "message_link" ||
     type === "message_short" ||
     type === "message_image" ||
-    type === "message_audio"
+    type === "message_audio" ||
+    type === "message_fast_reply"
   );
 }
 
@@ -937,6 +939,22 @@ function findNextEdge(edges: FlowEdge[], from: string, branch: string) {
   );
 }
 
+function normalizeQuickReplyButtons(value: unknown) {
+  const list = Array.isArray(value) ? value : [];
+  const seen = new Set<string>();
+  const output: string[] = [];
+  for (const item of list) {
+    const text = String(item || "").replace(/\s+/g, " ").trim();
+    if (!text) continue;
+    const normalized = text.toLowerCase();
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    output.push(text.slice(0, 20));
+    if (output.length >= 3) break;
+  }
+  return output;
+}
+
 async function sendTextMessage(env: Env, to: string, text: string, preview = false) {
   const token = requireEnv(env, "WHATSAPP_TOKEN");
   const phoneNumberId = requireEnv(env, "WHATSAPP_PHONE_NUMBER_ID");
@@ -946,6 +964,31 @@ async function sendTextMessage(env: Env, to: string, text: string, preview = fal
     to,
     type: "text",
     text: { body: text, preview_url: preview },
+  };
+  return callGraph(`${phoneNumberId}/messages`, token, body, version);
+}
+
+async function sendFastReplyMessage(env: Env, to: string, text: string, options: string[]) {
+  const token = requireEnv(env, "WHATSAPP_TOKEN");
+  const phoneNumberId = requireEnv(env, "WHATSAPP_PHONE_NUMBER_ID");
+  const version = apiVersion(env);
+  const buttons = normalizeQuickReplyButtons(options).map((title, index) => ({
+    type: "reply",
+    reply: {
+      id: `fr_${Date.now()}_${index + 1}`,
+      title,
+    },
+  }));
+
+  const body = {
+    messaging_product: "whatsapp",
+    to,
+    type: "interactive",
+    interactive: {
+      type: "button",
+      body: { text: String(text || "").slice(0, 1024) },
+      action: { buttons },
+    },
   };
   return callGraph(`${phoneNumberId}/messages`, token, body, version);
 }
@@ -1483,12 +1526,12 @@ async function runFlow(
         logNotes.push(`delay:${node.id}:ignorado`);
       }
 
-      if (node.type === "message" || node.type === "message_link" || node.type === "message_short" || node.type === "message_image" || node.type === "message_audio") {
+      if (node.type === "message" || node.type === "message_link" || node.type === "message_short" || node.type === "message_image" || node.type === "message_audio" || node.type === "message_fast_reply") {
         const body = String(node.body || "").trim();
         const blockLabel = messageBlockLabel(messageOrderMap, node.id);
         const blockVarToken = toBlockToken(blockLabel);
         let url = "";
-        if (node.type !== "message" && node.type !== "message_audio") {
+        if (node.type === "message_link" || node.type === "message_short" || node.type === "message_image") {
           url = applyVars(String(node.url || "").trim(), contact, {
             bloco: blockVarToken,
             fluxo: flowVarToken,
@@ -1520,7 +1563,38 @@ async function runFlow(
             text = `${finalUrl}\n${body}`.trim();
           }
         }
-        if (node.type === "message_audio") {
+        if (node.type === "message_fast_reply") {
+          const options = normalizeQuickReplyButtons(node.quick_replies);
+          if (!body || !options.length) {
+            logNotes.push(`msg:${node.id}:sem_fast_reply`);
+          } else {
+            let localId: string | null = null;
+            if (kv) {
+              const previewText = `${body} [${options.join(" | ")}]`.trim();
+              const local = await appendOutgoingMessage(kv, env, contact, previewText, "text");
+              localId = local.localId;
+            }
+            try {
+              const data: any = await sendFastReplyMessage(env, contact.wa_id, body, options);
+              logNotes.push(`msg:${node.id}:ok`);
+              if (kv && localId) {
+                await finalizeOutgoingMessage(
+                  kv,
+                  env,
+                  contact.wa_id,
+                  localId,
+                  "sent",
+                  data?.messages?.[0]?.id,
+                );
+              }
+            } catch {
+              logNotes.push(`msg:${node.id}:falhou`);
+              if (kv && localId) {
+                await finalizeOutgoingMessage(kv, env, contact.wa_id, localId, "failed");
+              }
+            }
+          }
+        } else if (node.type === "message_audio") {
           const audioUrl = String(node.audio_url || "").trim();
           const audioName = String(node.audio_name || "").trim();
           const voice = node.audio_voice !== false;
@@ -2548,6 +2622,3 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
   return new Response("OK", { status: 200 });
 };
-
-
-
