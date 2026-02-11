@@ -1,4 +1,4 @@
-import { apiVersion, callGraph, Env, json, requireEnv } from "./api/_utils";
+import { apiVersion, callGraph, constantTimeEquals, Env, json, requireEnv } from "./api/_utils";
 import { dbCleanupOldDelayJobClaims, dbFinalizeOutgoingMessage, dbInsertFlowLogs, dbReleaseDelayJobClaim, dbTryClaimDelayJob, dbUpdateMessageStatusByMessageId, dbUpsertContact, dbUpsertConversation, dbUpsertMessage } from "./api/_d1";
 
 type Conversation = {
@@ -179,6 +179,38 @@ const WAIT_REPLY_TTL_SEC = 14 * 24 * 3600;
 const WAIT_CLICK_TTL_SEC = 14 * 24 * 3600;
 const FLOW_LAST_LINK_TTL_SEC = 30 * 24 * 3600;
 const FLOW_LINK_META_TTL_SEC = 30 * 24 * 3600;
+
+function parseWebhookSignature(headerValue: string) {
+  const raw = String(headerValue || "").trim().toLowerCase();
+  if (!raw.startsWith("sha256=")) return "";
+  return raw.slice(7).trim();
+}
+
+function toHex(buffer: ArrayBuffer) {
+  const bytes = new Uint8Array(buffer);
+  let hex = "";
+  for (const b of bytes) {
+    hex += b.toString(16).padStart(2, "0");
+  }
+  return hex;
+}
+
+async function isValidWhatsappSignature(rawBody: ArrayBuffer, headerValue: string, appSecret: string) {
+  const expected = parseWebhookSignature(headerValue);
+  if (!expected) return false;
+
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(String(appSecret || "")),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+
+  const signature = await crypto.subtle.sign("HMAC", key, rawBody);
+  const actual = toHex(signature).toLowerCase();
+  return constantTimeEquals(actual, expected);
+}
 
 
 
@@ -2132,9 +2164,26 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
 };
 
 export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
+  let rawBody: ArrayBuffer;
+  try {
+    rawBody = await request.arrayBuffer();
+  } catch {
+    return new Response("OK", { status: 200 });
+  }
+
+  const appSecret = String(env.WHATSAPP_APP_SECRET || "").trim();
+  if (appSecret) {
+    const signatureHeader = request.headers.get("x-hub-signature-256") || "";
+    const valid = await isValidWhatsappSignature(rawBody, signatureHeader, appSecret);
+    if (!valid) {
+      return json({ error: "Invalid webhook signature" }, 403);
+    }
+  }
+
   let payload: any = null;
   try {
-    payload = await request.json();
+    const textBody = new TextDecoder().decode(rawBody);
+    payload = textBody ? JSON.parse(textBody) : null;
   } catch {
     payload = null;
   }

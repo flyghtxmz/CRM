@@ -5,12 +5,16 @@ export type Env = {
   WHATSAPP_API_VERSION?: string;
   WHATSAPP_VERIFY_TOKEN?: string;
   WHATSAPP_APP_ID?: string;
+  WHATSAPP_APP_SECRET?: string;
   BOTZAP_KV?: KVNamespace;
   BOTZAP_DB?: D1Database;
   BOTZAP_AUDIO_R2?: R2Bucket;
   BOTZAP_AUDIO_BASE_URL?: string;
   BOTZAP_ADMIN_EMAIL?: string;
   BOTZAP_ADMIN_PASSWORD?: string;
+  BOTZAP_ADMIN_PASSWORD_HASH?: string;
+  BOTZAP_LOGIN_RATE_LIMIT?: string;
+  BOTZAP_LOGIN_RATE_WINDOW?: string;
   BOTZAP_SESSION_TTL?: string;
   SHORTENER_URL?: string;
   SHORTENER_API_KEY?: string;
@@ -90,6 +94,29 @@ export async function callGraph(
   return data;
 }
 
+export function constantTimeEquals(left: string, right: string) {
+  const a = String(left || "");
+  const b = String(right || "");
+  const len = Math.max(a.length, b.length);
+  let diff = a.length ^ b.length;
+  for (let i = 0; i < len; i += 1) {
+    const ca = i < a.length ? a.charCodeAt(i) : 0;
+    const cb = i < b.length ? b.charCodeAt(i) : 0;
+    diff |= ca ^ cb;
+  }
+  return diff === 0;
+}
+
+export async function sha256Hex(value: string) {
+  const data = new TextEncoder().encode(String(value || ""));
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  const bytes = new Uint8Array(digest);
+  let hex = "";
+  for (const b of bytes) {
+    hex += b.toString(16).padStart(2, "0");
+  }
+  return hex;
+}
 export function getCookie(request: Request, name: string) {
   const header = request.headers.get("cookie") || "";
   const parts = header.split(";").map((part) => part.trim());
