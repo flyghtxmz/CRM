@@ -2608,3 +2608,60 @@ body.canva-page .topbar-actions {
 .audio-item-actions .danger:hover {
   background: #c74343;
 }
+
+.flow-node-human-service {
+  width: 320px;
+  min-height: 292px;
+}
+
+.flow-node-human-service .flow-human-service-body {
+  display: grid;
+  gap: 10px;
+  padding: 10px 10px 116px;
+}
+
+.flow-human-buttons {
+  display: grid;
+  gap: 8px;
+}
+
+.flow-human-button {
+  border: 1px solid var(--wa-border);
+  border-radius: 10px;
+  background: #f9fcfa;
+  padding: 9px 10px;
+  font-size: 12px;
+  color: var(--ink);
+  line-height: 1.3;
+}
+
+.flow-human-button.yes {
+  border-color: #8fd7b0;
+}
+
+.flow-human-button.no {
+  border-color: #efc1c1;
+}
+
+.flow-node-human-service .connector.out.yes {
+  bottom: 66px;
+  transform: none;
+}
+
+.flow-node-human-service .connector.out.no {
+  bottom: 24px;
+  transform: none;
+}
+
+.flow-node-human-service .flow-branch-label {
+  right: 30px;
+}
+
+.flow-node-human-service .flow-branch-label.yes {
+  bottom: 70px;
+}
+
+.flow-node-human-service .flow-branch-label.no {
+  bottom: 28px;
+}
+

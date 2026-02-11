@@ -3,15 +3,15 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Botzap CRM</title>
-    <meta name="description" content="Botzap CRM - WhatsApp Cloud API" />
+    <title>Botzap CRM - Atendimento</title>
+    <meta name="description" content="Botzap CRM - Atendimento Humano" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
-  <body class="app-page">
+  <body class="app-page" data-conversations-endpoint="/api/conversations?only_human=1">
     <header class="topbar">
       <div>
         <div class="brand">Botzap CRM</div>
-        <div class="subtitle">WhatsApp Cloud API <span class="version">v1.08</span></div>
+        <div class="subtitle">Atendimento Humano <span class="version">v1.08</span></div>
       </div>
             <div class="topbar-actions">
         <a class="ghost link" href="/app.html">Conversas</a>
@@ -30,13 +30,13 @@
       <section class="wa-shell">
         <aside class="wa-sidebar">
           <div class="wa-sidebar-top">
-            <div class="avatar">B</div>
+            <div class="avatar">A</div>
             <div class="wa-actions">
               <button type="button" id="refresh-conversations" class="icon-btn">Atualizar</button>
             </div>
           </div>
           <div class="wa-search">
-            <input id="conversation-search" type="search" placeholder="Pesquisar ou iniciar conversa" />
+            <input id="conversation-search" type="search" placeholder="Pesquisar atendimento" />
           </div>
           <div id="conversation-list" class="conversation-list"></div>
           <p id="conversation-empty" class="hint"></p>
@@ -71,6 +71,5 @@
     <script src="/app.js"></script>
   </body>
 </html>
-
 
 

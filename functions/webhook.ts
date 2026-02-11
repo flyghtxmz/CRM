@@ -37,6 +37,8 @@ type Contact = {
   last_status?: string;
   last_flow_trigger_at?: number;
   last_flow_trigger_msg_id?: string;
+  human_service_requested?: boolean;
+  human_service_requested_at?: number;
 };
 
 type FlowEdge = {
@@ -130,6 +132,7 @@ type WaitFastReplyState = {
   next_by_option: string[];
   loop_until_match?: boolean;
   body?: string;
+  kind?: "fast_reply" | "human_service";
   created_at: number;
 };
 
@@ -883,6 +886,8 @@ function applyContactRecord(base: Contact, updated: Contact) {
   base.last_status = updated.last_status;
   base.last_flow_trigger_at = updated.last_flow_trigger_at;
   base.last_flow_trigger_msg_id = updated.last_flow_trigger_msg_id;
+  base.human_service_requested = updated.human_service_requested;
+  base.human_service_requested_at = updated.human_service_requested_at;
 }
 
 function upsertContactWithList(contactList: Contact[], contact: Contact) {
@@ -897,6 +902,8 @@ function upsertContactWithList(contactList: Contact[], contact: Contact) {
     last_status: contact.last_status,
     last_flow_trigger_at: contact.last_flow_trigger_at,
     last_flow_trigger_msg_id: contact.last_flow_trigger_msg_id,
+    human_service_requested: contact.human_service_requested,
+    human_service_requested_at: contact.human_service_requested_at,
   });
   applyContactRecord(contact, updated);
   return updated;
@@ -1589,7 +1596,7 @@ async function runFlow(
         logNotes.push(`delay:${node.id}:ignorado`);
       }
 
-      if (node.type === "message" || node.type === "message_link" || node.type === "message_short" || node.type === "message_image" || node.type === "message_audio" || node.type === "message_fast_reply") {
+      if (node.type === "message" || node.type === "message_link" || node.type === "message_short" || node.type === "message_image" || node.type === "message_audio" || node.type === "message_fast_reply" || node.type === "human_service") {
         const body = String(node.body || "").trim();
         const blockLabel = messageBlockLabel(messageOrderMap, node.id);
         const blockVarToken = toBlockToken(blockLabel);
@@ -1625,6 +1632,72 @@ async function runFlow(
           } else {
             text = `${finalUrl}\n${body}`.trim();
           }
+        }
+        if (node.type === "human_service") {
+          const options = ["Quero um atendimento", "Nao, obrigado"];
+          const messageText = body || "Deseja falar com um atendente?";
+          if (!kv) {
+            logNotes.push(`msg:${node.id}:sem_kv`);
+            currentId = node.id;
+            edge = undefined;
+            continue;
+          }
+
+          const nextYes = String(findNextEdge(edges, node.id, "yes")?.to || findNextEdge(edges, node.id, "default")?.to || "").trim();
+          const nextNo = String(findNextEdge(edges, node.id, "no")?.to || "").trim();
+          const nextByOption = [nextYes, nextNo];
+
+          if (!nextByOption.some(Boolean)) {
+            logNotes.push(`msg:${node.id}:sem_saida_humano`);
+            currentId = node.id;
+            edge = undefined;
+            continue;
+          }
+
+          let localId: string | null = null;
+          if (kv) {
+            const previewText = `${messageText} [${options.join(" | ")}]`.trim();
+            const local = await appendOutgoingMessage(kv, env, contact, previewText, "text");
+            localId = local.localId;
+          }
+
+          try {
+            const data: any = await sendFastReplyMessage(env, contact.wa_id, messageText, options);
+            if (kv && localId) {
+              await finalizeOutgoingMessage(
+                kv,
+                env,
+                contact.wa_id,
+                localId,
+                "sent",
+                data?.messages?.[0]?.id,
+              );
+            }
+            await enqueueWaitFastReplyState(kv, {
+              id: newWaitFastReplyId(),
+              flow_id: flow.id,
+              flow_name: flow.name,
+              wa_id: contact.wa_id,
+              node_id: node.id,
+              options,
+              next_by_option: nextByOption,
+              loop_until_match: false,
+              body: messageText,
+              kind: "human_service",
+              created_at: nowUnix(),
+            });
+            logNotes.push(`msg:${node.id}:ok`);
+            logNotes.push(`human_wait:${node.id}:ok`);
+          } catch {
+            logNotes.push(`msg:${node.id}:falhou`);
+            if (kv && localId) {
+              await finalizeOutgoingMessage(kv, env, contact.wa_id, localId, "failed");
+            }
+          }
+
+          currentId = node.id;
+          edge = undefined;
+          continue;
         }
         if (node.type === "message_fast_reply") {
           const options = normalizeQuickReplyButtons(node.quick_replies);
@@ -2555,6 +2628,17 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
           }
 
           notes.push(`fast_reply:opcao:${matchedIndex + 1}`);
+          const waitKind = String(waitState.kind || "fast_reply").toLowerCase();
+          if (waitKind === "human_service") {
+            if (matchedIndex === 0) {
+              contactRecord.human_service_requested = true;
+              contactRecord.human_service_requested_at = nowUnix();
+              notes.push("human_service:requested");
+            } else if (matchedIndex === 1) {
+              contactRecord.human_service_requested = false;
+              notes.push("human_service:declined");
+            }
+          }
           const nextNodeId = String(nextByOption[matchedIndex] || "").trim();
           if (!nextNodeId) {
             notes.push("fast_reply:sem_saida");

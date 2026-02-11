@@ -28,6 +28,7 @@ const chatInput = document.getElementById("chat-input");
 const chatSend = document.getElementById("chat-send");
 const chatError = document.getElementById("chat-error");
 const searchInput = document.getElementById("conversation-search");
+const conversationsEndpoint = (document.body?.dataset?.conversationsEndpoint || "/api/conversations").trim() || "/api/conversations";
 
 const pretty = (data) => JSON.stringify(data, null, 2);
 function formatUnknownError(err) {
@@ -372,7 +373,7 @@ function applySearch(list) {
 async function refreshConversations() {
   if (!convList) return;
   try {
-    const res = await fetch("/api/conversations", { credentials: "include" });
+    const res = await fetch(conversationsEndpoint, { credentials: "include" });
     const text = await res.text();
     let data;
     try {
@@ -996,6 +997,8 @@ if (trackForm && trackResult) {
     }
   });
 }
+
+
 
 
 

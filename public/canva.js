@@ -268,6 +268,7 @@ const blockPresets = {
   message_image: { title: "Mensagem com imagem + link", body: "Legenda da imagem", url: "", image: "" },
   message_audio: { title: "Mensagem de audio", body: "", audio_source: "existing", audio_id: "", audio_url: "", audio_name: "", audio_voice: true },
   message_fast_reply: { title: "Mensagem Fast Reply", body: "Escolha uma opcao:", quick_replies: ["Quero saber mais", "Falar com atendente"] },
+  human_service: { title: "Atendimento Humano", body: "Deseja falar com um atendente?" },
   delay: { title: "Delay", body: "Esperar" },
   condition: { title: "Condicao", body: "" },
   action: { title: "Acoes", body: "" },
@@ -280,6 +281,7 @@ const messageBlockOptions = [
   { type: "message_image", label: "Mensagem com imagem + link" },
   { type: "message_audio", label: "Mensagem de audio" },
   { type: "message_fast_reply", label: "Mensagem Fast Reply" },
+  { type: "human_service", label: "Atendimento Humano" },
 ];
 
 const blockOptions = [
@@ -288,7 +290,7 @@ const blockOptions = [
   { type: "condition", label: "Condicao" },
   { type: "action", label: "Acoes" },
 ];
-const MESSAGE_NODE_TYPES = new Set(["message", "message_link", "message_short", "message_image", "message_audio", "message_fast_reply"]);
+const MESSAGE_NODE_TYPES = new Set(["message", "message_link", "message_short", "message_image", "message_audio", "message_fast_reply", "human_service"]);
 
 function makeId(prefix) {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
@@ -461,6 +463,9 @@ async function loadFlow() {
       node.body = typeof node.body === "string" && node.body.trim() ? node.body : "Escolha uma opcao:";
       node.quick_replies = normalizeFastReplyOptions(node.quick_replies);
       node.loop_until_match = node.loop_until_match === true;
+    }
+    if (node.type === "human_service") {
+      node.body = typeof node.body === "string" && node.body.trim() ? node.body : "Deseja falar com um atendente?";
     }
     if (node.type === "action") {
       if (node.action && typeof node.action === "object") {
@@ -869,6 +874,7 @@ function nodeSize(node) {
   if (type === "message_image") return { width: 300, height: 360 };
   if (type === "message_audio") return { width: 320, height: 320 };
   if (type === "message_fast_reply") return { width: 320, height: fastReplyNodeHeight(node) };
+  if (type === "human_service") return { width: 320, height: 292 };
   if (type === "message_short" || type === "message_link") return { width: 300, height: 300 };
   return { width: 260, height: 220 };
 }
@@ -2259,6 +2265,115 @@ function renderFastReplyMessageNode(node) {
   attachNodeInteractions(el, node);
   enableDrag(el, node);
 }
+
+function renderHumanServiceNode(node) {
+  if (!surface) return;
+  const el = document.createElement("div");
+  el.className = "flow-node flow-node-message-link flow-node-human-service";
+  el.dataset.nodeId = node.id;
+  el.style.left = `${node.x}px`;
+  el.style.top = `${node.y}px`;
+
+  const header = document.createElement("div");
+  header.className = "flow-node-header";
+  appendMessageHeaderTitle(header, node, "Atendimento Humano");
+  const deleteBtn = createDeleteButton(node);
+  if (deleteBtn) header.appendChild(deleteBtn);
+
+  const body = document.createElement("div");
+  body.className = "flow-node-body flow-human-service-body";
+
+  const textarea = document.createElement("textarea");
+  textarea.rows = 3;
+  textarea.placeholder = "Mensagem para o cliente";
+  textarea.value = node.body || "";
+  textarea.addEventListener("change", () => {
+    node.body = textarea.value;
+    scheduleAutoSave();
+  });
+
+  const hint = document.createElement("div");
+  hint.className = "flow-fast-reply-hint";
+  hint.textContent = "Saidas fixas: Quero um atendimento (sim) e Nao, obrigado (nao).";
+
+  const buttonsPreview = document.createElement("div");
+  buttonsPreview.className = "flow-human-buttons";
+
+  const yesPreview = document.createElement("div");
+  yesPreview.className = "flow-human-button yes";
+  yesPreview.textContent = "Quero um atendimento";
+
+  const noPreview = document.createElement("div");
+  noPreview.className = "flow-human-button no";
+  noPreview.textContent = "Nao, obrigado";
+
+  buttonsPreview.appendChild(yesPreview);
+  buttonsPreview.appendChild(noPreview);
+
+  const connectorIn = document.createElement("div");
+  connectorIn.className = "connector in";
+  connectorIn.title = "Entrada";
+  connectorIn.addEventListener("click", () => {
+    if (!linkFromId || linkFromId === node.id) return;
+    const branch = linkFromBranch || "default";
+    const exists = state.edges.some(
+      (edge) =>
+        edge.from === linkFromId &&
+        edge.to === node.id &&
+        (edge.branch || "default") === branch,
+    );
+    if (!exists) {
+      state.edges.push({ id: makeId("edge"), from: linkFromId, to: node.id, branch });
+      renderEdges();
+      scheduleAutoSave();
+    }
+    linkFromId = null;
+    resetLinking();
+  });
+
+  const connectorOutYes = document.createElement("div");
+  connectorOutYes.className = "connector out yes";
+  connectorOutYes.title = "Quero um atendimento";
+  connectorOutYes.addEventListener("click", () => {
+    linkFromId = node.id;
+    linkFromBranch = "yes";
+    clearLinking();
+    el.classList.add("linking");
+  });
+
+  const connectorOutNo = document.createElement("div");
+  connectorOutNo.className = "connector out no";
+  connectorOutNo.title = "Nao, obrigado";
+  connectorOutNo.addEventListener("click", () => {
+    linkFromId = node.id;
+    linkFromBranch = "no";
+    clearLinking();
+    el.classList.add("linking");
+  });
+
+  const yesLabel = document.createElement("span");
+  yesLabel.className = "flow-branch-label yes";
+  yesLabel.textContent = "Quero atendimento";
+
+  const noLabel = document.createElement("span");
+  noLabel.className = "flow-branch-label no";
+  noLabel.textContent = "Nao, obrigado";
+
+  body.appendChild(textarea);
+  body.appendChild(hint);
+  body.appendChild(buttonsPreview);
+
+  el.appendChild(header);
+  el.appendChild(body);
+  el.appendChild(connectorIn);
+  el.appendChild(connectorOutYes);
+  el.appendChild(connectorOutNo);
+  el.appendChild(yesLabel);
+  el.appendChild(noLabel);
+  surface.appendChild(el);
+  attachNodeInteractions(el, node);
+  enableDrag(el, node);
+}
 function renderAudioMessageNode(node) {
   if (!surface) return;
   const el = document.createElement("div");
@@ -2868,6 +2983,10 @@ function renderNodes() {
       renderFastReplyMessageNode(node);
       return;
     }
+    if (node.type === "human_service") {
+      renderHumanServiceNode(node);
+      return;
+    }
     if (node.type === "message_audio") {
       renderAudioMessageNode(node);
       return;
@@ -3152,6 +3271,9 @@ function addBlockAt(type, x, y) {
     node.quick_replies = normalizeFastReplyOptions(node.quick_replies);
     node.body = typeof node.body === "string" && node.body.trim() ? node.body : "Escolha uma opcao:";
     node.loop_until_match = false;
+  }
+  if (type === "human_service") {
+    node.body = typeof node.body === "string" && node.body.trim() ? node.body : "Deseja falar com um atendente?";
   }
   state.nodes.push(node);
   setSelectedNode(node.id);
@@ -3507,4 +3629,5 @@ document.addEventListener("keyup", (event) => {
     if (flowCanvas) flowCanvas.classList.remove("pan-ready");
   }
 });
+
 
