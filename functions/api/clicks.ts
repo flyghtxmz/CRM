@@ -1,5 +1,10 @@
-import { Env, getSession, json } from "./_utils";
-import { dbGetLinkClicks, dbGetLinkClicksSummary } from "./_d1";
+import { Env, getSession, json, options, readJson } from "./_utils";
+import {
+  dbClearLinkClicks,
+  dbClearLinkClicksByFlow,
+  dbGetLinkClicks,
+  dbGetLinkClicksSummary,
+} from "./_d1";
 
 type ClickRecord = {
   id?: string;
@@ -30,10 +35,30 @@ type ClickBlockSummary = {
   clicks: number;
 };
 
+type ClearFlowBody = {
+  flow_id?: string;
+  flow_name?: string;
+};
+
 function toNumber(value: unknown, fallback = 0) {
   const parsed = typeof value === "string" ? Number.parseInt(value, 10) : Number(value);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.floor(parsed);
+}
+
+function normalizeText(value: unknown) {
+  return String(value || "").trim();
+}
+
+function matchesFlow(item: ClickRecord, flowId: string, flowName: string) {
+  const itemFlowId = normalizeText(item.flow_id);
+  const itemFlowName = normalizeText(item.flow_name);
+
+  if (flowId && itemFlowId === flowId) return true;
+  if (!flowName) return false;
+
+  if (flowId && itemFlowId) return false;
+  return itemFlowName.toLowerCase() === flowName.toLowerCase();
 }
 
 function summarizeClicks(list: ClickRecord[]) {
@@ -90,6 +115,8 @@ function summarizeClicks(list: ClickRecord[]) {
   };
 }
 
+export const onRequestOptions = async () => options();
+
 export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   const session = await getSession(request, env);
   if ("error" in session) {
@@ -112,5 +139,45 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
   const recent = list.slice(0, limit);
   const summary = summarizeClicks(list);
   return json({ ok: true, summary, data: recent });
+};
+
+export const onRequestDelete: PagesFunction<Env> = async ({ request, env }) => {
+  const session = await getSession(request, env);
+  if ("error" in session) {
+    return json({ ok: false, error: session.error }, session.status);
+  }
+
+  await session.kv.put("clicks:index", JSON.stringify([]));
+  if (env.BOTZAP_DB) {
+    await dbClearLinkClicks(env);
+  }
+
+  return json({ ok: true, scope: "all" });
+};
+
+export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
+  const session = await getSession(request, env);
+  if ("error" in session) {
+    return json({ ok: false, error: session.error }, session.status);
+  }
+
+  const body = await readJson<ClearFlowBody>(request);
+  const flowId = normalizeText(body.flow_id);
+  const flowName = normalizeText(body.flow_name);
+
+  if (!flowId && !flowName) {
+    return json({ ok: false, error: "flow_id ou flow_name e obrigatorio" }, 400);
+  }
+
+  const kvList = (await session.kv.get("clicks:index", "json")) as ClickRecord[] | null;
+  const list = Array.isArray(kvList) ? kvList : [];
+  const next = list.filter((item) => !matchesFlow(item, flowId, flowName));
+  await session.kv.put("clicks:index", JSON.stringify(next));
+
+  if (env.BOTZAP_DB) {
+    await dbClearLinkClicksByFlow(env, flowId, flowName);
+  }
+
+  return json({ ok: true, scope: "flow", flow_id: flowId || null, flow_name: flowName || null });
 };
 

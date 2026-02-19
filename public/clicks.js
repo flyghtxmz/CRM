@@ -1,10 +1,20 @@
 const logoutButton = document.getElementById("logout");
 const refreshButton = document.getElementById("clicks-refresh");
+const clearAllButton = document.getElementById("clicks-clear-all");
+const clearFlowButton = document.getElementById("clicks-clear-flow");
+const flowSelect = document.getElementById("clicks-flow-select");
+const statusEl = document.getElementById("clicks-status");
 const summaryEl = document.getElementById("clicks-summary");
 const byFlowEl = document.getElementById("clicks-by-flow");
 const byBlockEl = document.getElementById("clicks-by-block");
 const listEl = document.getElementById("clicks-list");
 const emptyEl = document.getElementById("clicks-empty");
+
+function showStatus(text, isError = false) {
+  if (!statusEl) return;
+  statusEl.textContent = text || "";
+  statusEl.classList.toggle("error", isError);
+}
 
 async function ensureSession() {
   try {
@@ -34,6 +44,30 @@ async function fetchClicks() {
     summary: payload.summary || null,
     data: Array.isArray(payload.data) ? payload.data : [],
   };
+}
+
+async function clearAllClicks() {
+  const res = await fetch("/api/clicks", {
+    method: "DELETE",
+    credentials: "include",
+  });
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok || !payload?.ok) {
+    throw new Error(payload?.error || "Falha ao limpar clicks");
+  }
+}
+
+async function clearFlowClicks(flowId, flowName) {
+  const res = await fetch("/api/clicks", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ flow_id: flowId || "", flow_name: flowName || "" }),
+  });
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok || !payload?.ok) {
+    throw new Error(payload?.error || "Falha ao limpar flow");
+  }
 }
 
 function formatDate(value) {
@@ -137,6 +171,40 @@ function renderRecent(list) {
   });
 }
 
+function flowDisplayName(row) {
+  return String(row.flow_name || row.flow_id || "Sem fluxo");
+}
+
+function fillFlowSelect(rows) {
+  if (!flowSelect) return;
+  const previous = String(flowSelect.value || "");
+  flowSelect.innerHTML = "";
+
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = "Selecionar fluxo";
+  flowSelect.appendChild(placeholder);
+
+  if (!Array.isArray(rows)) return;
+
+  rows.forEach((row, idx) => {
+    const flowId = String(row.flow_id || "").trim();
+    const flowName = String(row.flow_name || "").trim();
+    if (!flowId && !flowName) return;
+
+    const option = document.createElement("option");
+    option.value = String(idx + 1);
+    option.dataset.flowId = flowId;
+    option.dataset.flowName = flowName;
+    option.textContent = `${flowDisplayName(row)} (${Number(row.clicks || 0)})`;
+    flowSelect.appendChild(option);
+  });
+
+  if (previous && Array.from(flowSelect.options).some((opt) => opt.value === previous)) {
+    flowSelect.value = previous;
+  }
+}
+
 async function loadAndRender() {
   const payload = await fetchClicks();
   const summary = payload.summary || {
@@ -147,11 +215,12 @@ async function loadAndRender() {
     by_block: [],
   };
   renderSummary(summary);
+  fillFlowSelect(summary.by_flow);
   renderRanking(
     byFlowEl,
     summary.by_flow,
     "Nenhum fluxo com clicks.",
-    (row) => String(row.flow_name || row.flow_id || "Sem fluxo"),
+    (row) => flowDisplayName(row),
   );
   renderRanking(
     byBlockEl,
@@ -182,11 +251,56 @@ if (logoutButton) {
 }
 
 if (refreshButton) {
-  refreshButton.addEventListener("click", loadAndRender);
+  refreshButton.addEventListener("click", async () => {
+    showStatus("Atualizando...");
+    await loadAndRender();
+    showStatus("");
+  });
+}
+
+if (clearAllButton) {
+  clearAllButton.addEventListener("click", async () => {
+    const confirmed = window.confirm("Deseja limpar TODOS os clicks? Essa acao nao pode ser desfeita.");
+    if (!confirmed) return;
+    try {
+      showStatus("Limpando todos os clicks...");
+      await clearAllClicks();
+      await loadAndRender();
+      showStatus("Todos os clicks foram removidos.");
+    } catch (err) {
+      showStatus(err instanceof Error ? err.message : "Falha ao limpar clicks", true);
+    }
+  });
+}
+
+if (clearFlowButton) {
+  clearFlowButton.addEventListener("click", async () => {
+    if (!flowSelect) return;
+    const selected = flowSelect.selectedOptions?.[0];
+    const flowId = String(selected?.dataset?.flowId || "").trim();
+    const flowName = String(selected?.dataset?.flowName || "").trim();
+    const label = selected?.textContent || "fluxo selecionado";
+
+    if (!flowId && !flowName) {
+      showStatus("Selecione um fluxo para excluir os clicks.", true);
+      return;
+    }
+
+    const confirmed = window.confirm(`Deseja excluir os clicks de: ${label}?`);
+    if (!confirmed) return;
+
+    try {
+      showStatus("Excluindo clicks do fluxo...");
+      await clearFlowClicks(flowId, flowName);
+      await loadAndRender();
+      showStatus("Clicks do fluxo removidos.");
+    } catch (err) {
+      showStatus(err instanceof Error ? err.message : "Falha ao excluir clicks do fluxo", true);
+    }
+  });
 }
 
 ensureSession().then(async (ok) => {
   if (!ok) return;
   await loadAndRender();
 });
-

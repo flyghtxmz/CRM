@@ -763,6 +763,56 @@ export async function dbGetLinkClicksSummary(env: Env, top = 20) {
   }
 }
 
+export async function dbClearLinkClicks(env: Env) {
+  const database = db(env);
+  if (!database) return;
+
+  try {
+    await database.prepare(`DELETE FROM link_clicks`).run();
+  } catch (err) {
+    if (isMissingTableError(err, "link_clicks")) return;
+    throw err;
+  }
+}
+
+export async function dbClearLinkClicksByFlow(env: Env, flowId?: string, flowName?: string) {
+  const database = db(env);
+  if (!database) return;
+
+  const flowIdValue = asString(flowId).trim();
+  const flowNameValue = asString(flowName).trim();
+  if (!flowIdValue && !flowNameValue) return;
+
+  try {
+    if (flowIdValue && flowNameValue) {
+      await database
+        .prepare(
+          `DELETE FROM link_clicks
+          WHERE flow_id = ?
+            OR ((flow_id IS NULL OR flow_id = '') AND flow_name = ?)`,
+        )
+        .bind(flowIdValue, flowNameValue)
+        .run();
+      return;
+    }
+
+    if (flowIdValue) {
+      await database
+        .prepare(`DELETE FROM link_clicks WHERE flow_id = ?`)
+        .bind(flowIdValue)
+        .run();
+      return;
+    }
+
+    await database
+      .prepare(`DELETE FROM link_clicks WHERE (flow_id IS NULL OR flow_id = '') AND flow_name = ?`)
+      .bind(flowNameValue)
+      .run();
+  } catch (err) {
+    if (isMissingTableError(err, "link_clicks")) return;
+    throw err;
+  }
+}
 // Returns:
 // - true: claim created (job can run)
 // - false: claim already exists (job must be skipped)
@@ -819,3 +869,5 @@ export async function dbCleanupOldDelayJobClaims(env: Env, maxAgeSec = 7 * 24 * 
     throw err;
   }
 }
+
+

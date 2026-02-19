@@ -2665,3 +2665,41 @@ body.canva-page .topbar-actions {
   bottom: 28px;
 }
 
+.clicks-actions {
+  flex-wrap: wrap;
+}
+
+.clicks-actions select {
+  min-width: 220px;
+  margin: 0;
+}
+
+.clicks-actions button {
+  margin-top: 0;
+}
+
+.clicks-actions .danger {
+  background: #e05656;
+}
+
+.clicks-actions .danger:hover {
+  background: #c74343;
+}
+
+.clicks-actions .icon-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.clicks-actions .icon-button svg {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+  flex: 0 0 auto;
+}
+
+#clicks-status {
+  width: 100%;
+  margin: 0;
+}

@@ -11,9 +11,9 @@
     <header class="topbar">
       <div>
         <div class="brand">Botzap CRM</div>
-        <div class="subtitle">Clicks no Link <span class="version">v1.08</span></div>
+        <div class="subtitle">Clicks no Link <span class="version">v1.09</span></div>
       </div>
-            <div class="topbar-actions">
+      <div class="topbar-actions">
         <a class="ghost link" href="/app.html">Conversas</a>
         <a class="ghost link" href="/atendimento.html">Atendimento</a>
         <a class="ghost link" href="/contacts.html">Contatos</a>
@@ -35,7 +35,18 @@
           </div>
           <div class="clicks-actions">
             <button id="clicks-refresh" type="button">Atualizar</button>
+            <select id="clicks-flow-select" aria-label="Selecionar fluxo para excluir">
+              <option value="">Selecionar fluxo</option>
+            </select>
+            <button id="clicks-clear-flow" type="button" class="danger icon-button" title="Excluir clicks do fluxo selecionado" aria-label="Excluir clicks do fluxo selecionado">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M9 3h6l1 2h4v2H4V5h4l1-2zm1 7h2v8h-2v-8zm4 0h2v8h-2v-8zM7 10h2v8H7v-8z"/>
+              </svg>
+              <span>Excluir fluxo</span>
+            </button>
+            <button id="clicks-clear-all" type="button" class="danger">Limpar tudo</button>
           </div>
+          <p id="clicks-status" class="hint"></p>
         </div>
 
         <div id="clicks-summary" class="clicks-summary"></div>
@@ -60,6 +71,4 @@
     <script src="/clicks.js"></script>
   </body>
 </html>
-
-
 
