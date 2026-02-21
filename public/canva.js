@@ -1102,20 +1102,58 @@ function removeNodeById(nodeId) {
   scheduleAutoSave();
 }
 
+function cloneNodeData(node) {
+  if (typeof structuredClone === "function") {
+    return structuredClone(node);
+  }
+  return JSON.parse(JSON.stringify(node));
+}
+
+function duplicateNodeById(nodeId) {
+  const original = state.nodes.find((node) => node.id === nodeId);
+  if (!isNodeDeletable(original)) return;
+  const clone = cloneNodeData(original);
+  clone.id = makeId("node");
+  clone.x = Number(original?.x || 0) + 40;
+  clone.y = Number(original?.y || 0) + 40;
+  state.nodes.push(clone);
+  renderAll();
+  setSelectedNode(clone.id);
+  scheduleAutoSave();
+}
+
 function createDeleteButton(node) {
   if (!isNodeDeletable(node)) return null;
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "node-trash";
-  button.title = "Excluir bloco";
-  button.setAttribute("aria-label", "Excluir bloco");
-  button.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm1 7h2v8h-2v-8Zm4 0h2v8h-2v-8ZM7 10h2v8H7v-8Zm-1 11h12l1-13H5l1 13Z"/></svg>';
-  button.addEventListener("click", (event) => {
+  const actions = document.createElement("div");
+  actions.className = "node-header-actions";
+
+  const duplicateButton = document.createElement("button");
+  duplicateButton.type = "button";
+  duplicateButton.className = "node-duplicate";
+  duplicateButton.title = "Duplicar bloco";
+  duplicateButton.setAttribute("aria-label", "Duplicar bloco");
+  duplicateButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 8h11v11H8V8Zm-3 3H3V3h8v2H5v6Zm8-6v2h4v4h2V5h-6Z"/></svg>';
+  duplicateButton.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    duplicateNodeById(node.id);
+  });
+
+  const deleteButton = document.createElement("button");
+  deleteButton.type = "button";
+  deleteButton.className = "node-trash";
+  deleteButton.title = "Excluir bloco";
+  deleteButton.setAttribute("aria-label", "Excluir bloco");
+  deleteButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm1 7h2v8h-2v-8Zm4 0h2v8h-2v-8ZM7 10h2v8H7v-8Zm-1 11h12l1-13H5l1 13Z"/></svg>';
+  deleteButton.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
     removeNodeById(node.id);
   });
-  return button;
+
+  actions.appendChild(duplicateButton);
+  actions.appendChild(deleteButton);
+  return actions;
 }
 
 function attachNodeInteractions(element, node) {

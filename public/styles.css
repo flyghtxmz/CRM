@@ -1666,6 +1666,14 @@ body.canva-page .topbar-actions {
   cursor: pointer;
 }
 
+.flow-node-header .node-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.flow-node-header .node-duplicate,
 .flow-node-header .node-trash {
   margin-top: 0;
   width: 28px;
@@ -1675,6 +1683,18 @@ body.canva-page .topbar-actions {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+
+.flow-node-header .node-duplicate {
+  color: #2863b6;
+}
+
+.flow-node-header .node-duplicate:hover {
+  background: rgba(40, 99, 182, 0.12);
+  color: #1f4f93;
+}
+
+.flow-node-header .node-trash {
   color: #b8382a;
 }
 
@@ -1683,6 +1703,7 @@ body.canva-page .topbar-actions {
   color: #8f2318;
 }
 
+.flow-node-header .node-duplicate svg,
 .flow-node-header .node-trash svg {
   width: 15px;
   height: 15px;
