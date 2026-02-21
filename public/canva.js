@@ -3301,8 +3301,10 @@ function positionBlockPicker() {
   const pickerRect = blockPicker.getBoundingClientRect();
   const margin = 8;
 
-  const baseX = Number(blockPicker.dataset.rawX || blockPicker.style.left.replace("px", "") || 0);
-  const baseY = Number(blockPicker.dataset.rawY || blockPicker.style.top.replace("px", "") || 0);
+  const baseLocalX = Number(blockPicker.dataset.rawX || blockPicker.style.left.replace("px", "") || 0);
+  const baseX = canvasRect.left + baseLocalX;
+  const baseLocalY = Number(blockPicker.dataset.rawY || blockPicker.style.top.replace("px", "") || 0);
+  const baseY = canvasRect.top + baseLocalY;
 
   const maxX = Math.max(canvasRect.left + margin, canvasRect.right - pickerRect.width - margin);
   const maxY = Math.max(canvasRect.top + margin, canvasRect.bottom - pickerRect.height - margin);
@@ -3595,7 +3597,9 @@ window.addEventListener("resize", () => {
 });
 document.addEventListener("click", (event) => {
   if (!blockPicker || !blockPicker.classList.contains("open")) return;
-  if (blockPicker.contains(event.target)) return;
+  const path = typeof event.composedPath === "function" ? event.composedPath() : [];
+  if (Array.isArray(path) && path.includes(blockPicker)) return;
+  if (event.target instanceof Element && event.target.closest(".block-picker")) return;
   closeBlockPicker();
 });
 
@@ -3663,6 +3667,8 @@ document.addEventListener("keyup", (event) => {
     if (flowCanvas) flowCanvas.classList.remove("pan-ready");
   }
 });
+
+
 
 
 
