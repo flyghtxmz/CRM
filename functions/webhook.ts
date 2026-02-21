@@ -1,4 +1,4 @@
-import { apiVersion, callGraph, constantTimeEquals, Env, json, requireEnv } from "./api/_utils";
+import { apiVersion, callGraph, constantTimeEquals, Env, json, requireEnv, sha256Hex } from "./api/_utils";
 import { dbCleanupOldDelayJobClaims, dbFinalizeOutgoingMessage, dbInsertFlowLogs, dbReleaseDelayJobClaim, dbTryClaimDelayJob, dbUpdateMessageStatusByMessageId, dbUpsertContact, dbUpsertConversation, dbUpsertMessage } from "./api/_d1";
 
 type Conversation = {
@@ -296,19 +296,29 @@ function toBlockToken(blockLabel: string) {
   return `bl${match[1]}`;
 }
 
+async function contactUidToken(env: Env, contact: Contact) {
+  const waId = String(contact.wa_id || "").trim();
+  if (!waId) return "";
+  const secret = String(env.BOTZAP_TRACK_SECRET || env.WHATSAPP_APP_SECRET || "botzap_uid_v1");
+  const digest = await sha256Hex(`${secret}:${waId}`);
+  return digest.slice(0, 20);
+}
+
 function applyVars(
   input: string,
   contact: Contact,
-  ctx?: { bloco?: string; fluxo?: string },
+  ctx?: { bloco?: string; fluxo?: string; uid?: string },
 ) {
   if (!input) return "";
   const waId = String(contact.wa_id || "");
   const bloco = String(ctx?.bloco || "bl0");
   const fluxo = String(ctx?.fluxo || "fluxo");
+  const uid = String(ctx?.uid || "");
   const vars: Record<string, string> = {
     wa_id: encodeURIComponent(waId),
     phone: encodeURIComponent(waId),
     numero: encodeURIComponent(waId),
+    uid: encodeURIComponent(uid),
     bloco: encodeURIComponent(bloco),
     block: encodeURIComponent(bloco),
     bl: encodeURIComponent(bloco),
@@ -1395,6 +1405,7 @@ async function runFlow(
   if (!nodes.length || !edges.length) return false;
   const messageOrderMap = computeMessageBlockOrderMap(nodes, edges);
   const flowVarToken = toFlowToken(String(flow.name || flow.id || "fluxo"), "fluxo");
+  const uidVarToken = await contactUidToken(env, contact);
   let lastFlowLink = kv
     ? String((await kv.get(flowLastLinkKey(contact.wa_id))) || "").trim()
     : "";
@@ -1597,14 +1608,19 @@ async function runFlow(
       }
 
       if (node.type === "message" || node.type === "message_link" || node.type === "message_short" || node.type === "message_image" || node.type === "message_audio" || node.type === "message_fast_reply" || node.type === "human_service") {
-        const body = String(node.body || "").trim();
         const blockLabel = messageBlockLabel(messageOrderMap, node.id);
         const blockVarToken = toBlockToken(blockLabel);
+        const body = applyVars(String(node.body || "").trim(), contact, {
+          bloco: blockVarToken,
+          fluxo: flowVarToken,
+          uid: uidVarToken,
+        });
         let url = "";
         if (node.type === "message_link" || node.type === "message_short" || node.type === "message_image") {
           url = applyVars(String(node.url || "").trim(), contact, {
             bloco: blockVarToken,
             fluxo: flowVarToken,
+            uid: uidVarToken,
           });
         }
         let image = "";

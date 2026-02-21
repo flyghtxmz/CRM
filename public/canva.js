@@ -1940,7 +1940,7 @@ function renderLinkMessageNode(node) {
   body.appendChild(url);
   const varsHint = document.createElement("div");
   varsHint.className = "flow-url-vars-hint";
-  varsHint.textContent = "Parametros: {wa_id}, {bloco}, {fluxo}";
+  varsHint.textContent = "Parametros: {wa_id}, {uid}, {bloco}, {fluxo}";
   body.appendChild(varsHint);
 
   const linkMode = document.createElement("select");
@@ -2895,7 +2895,7 @@ function renderImageMessageNode(node) {
   body.appendChild(url);
   const varsHint = document.createElement("div");
   varsHint.className = "flow-url-vars-hint";
-  varsHint.textContent = "Parametros: {wa_id}, {bloco}, {fluxo}";
+  varsHint.textContent = "Parametros: {wa_id}, {uid}, {bloco}, {fluxo}";
   body.appendChild(varsHint);
   body.appendChild(linkMode);
   body.appendChild(linkFormat);
