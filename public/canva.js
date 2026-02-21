@@ -47,6 +47,7 @@ let autoSaveTimer = null;
 let selectedNodeId = null;
 let messageBlockOrderCache = new Map();
 let audioLibraryCache = [];
+let blockPickerRaf = null;
 let ffmpegContext = {
   ffmpeg: null,
   loading: null,
@@ -3293,6 +3294,34 @@ function getBlockPickerCoordinates() {
   };
 }
 
+function positionBlockPicker() {
+  if (!blockPicker || !flowCanvas || !blockPicker.classList.contains("open")) return;
+
+  const canvasRect = flowCanvas.getBoundingClientRect();
+  const pickerRect = blockPicker.getBoundingClientRect();
+  const margin = 8;
+
+  const baseX = Number(blockPicker.dataset.rawX || blockPicker.style.left.replace("px", "") || 0);
+  const baseY = Number(blockPicker.dataset.rawY || blockPicker.style.top.replace("px", "") || 0);
+
+  const maxX = Math.max(canvasRect.left + margin, canvasRect.right - pickerRect.width - margin);
+  const maxY = Math.max(canvasRect.top + margin, canvasRect.bottom - pickerRect.height - margin);
+
+  const clampedX = Math.min(Math.max(baseX, canvasRect.left + margin), maxX);
+  const clampedY = Math.min(Math.max(baseY, canvasRect.top + margin), maxY);
+
+  blockPicker.style.left = `${clampedX - canvasRect.left}px`;
+  blockPicker.style.top = `${clampedY - canvasRect.top}px`;
+}
+
+function scheduleBlockPickerPosition() {
+  if (blockPickerRaf) return;
+  blockPickerRaf = requestAnimationFrame(() => {
+    blockPickerRaf = null;
+    positionBlockPicker();
+  });
+}
+
 function renderBlockPickerView(view) {
   if (!blockPicker) return;
   const nextView = view === "messages" ? "messages" : "root";
@@ -3332,6 +3361,7 @@ function renderBlockPickerView(view) {
     blockPicker.appendChild(header);
 
     messageBlockOptions.forEach(addOptionButton);
+    scheduleBlockPickerPosition();
     return;
   }
 
@@ -3349,6 +3379,8 @@ function renderBlockPickerView(view) {
     }
     addOptionButton(option);
   });
+
+  scheduleBlockPickerPosition();
 }
 
 function buildBlockPicker() {
@@ -3360,11 +3392,12 @@ function openBlockPicker(rawX, rawY, nodeX, nodeY) {
   if (!blockPicker) return;
   blockPicker.dataset.nodeX = String(nodeX);
   blockPicker.dataset.nodeY = String(nodeY);
+  blockPicker.dataset.rawX = String(rawX);
+  blockPicker.dataset.rawY = String(rawY);
   renderBlockPickerView("root");
-  blockPicker.style.left = `${rawX}px`;
-  blockPicker.style.top = `${rawY}px`;
   blockPicker.classList.add("open");
   blockPicker.setAttribute("aria-hidden", "false");
+  scheduleBlockPickerPosition();
 }
 
 function closeBlockPicker() {
@@ -3558,6 +3591,7 @@ if (zoomResetButton) {
 window.addEventListener("resize", () => {
   renderEdges();
   renderMinimap();
+  scheduleBlockPickerPosition();
 });
 document.addEventListener("click", (event) => {
   if (!blockPicker || !blockPicker.classList.contains("open")) return;
@@ -3629,5 +3663,6 @@ document.addEventListener("keyup", (event) => {
     if (flowCanvas) flowCanvas.classList.remove("pan-ready");
   }
 });
+
 
 
