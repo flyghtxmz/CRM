@@ -13,6 +13,8 @@ type StoredMessage = {
   name?: string;
   direction?: "in" | "out";
   status?: string;
+  status_error_code?: string;
+  status_error_title?: string;
 };
 
 export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {

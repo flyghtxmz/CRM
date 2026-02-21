@@ -263,6 +263,29 @@ function messageConditionText(message: any) {
   return String(messagePreview(message) || "").trim();
 }
 
+function extractStatusFailure(status: any) {
+  const errors = Array.isArray(status?.errors) ? status.errors : [];
+  const first = errors.length > 0 && errors[0] && typeof errors[0] === "object" ? errors[0] : null;
+  const code = first?.code !== undefined && first?.code !== null ? String(first.code).trim() : "";
+  const title = String(
+    first?.title ||
+    first?.message ||
+    first?.error_data?.details ||
+    "",
+  ).trim();
+  const hasFailure = String(status?.status || "").toLowerCase() === "failed";
+  return {
+    hasFailure,
+    code,
+    title,
+    text: title
+      ? `Falha no envio (${code || "sem_codigo"}): ${title}`
+      : code
+        ? `Falha no envio (codigo ${code})`
+        : "Falha no envio",
+  };
+}
+
 function toNumber(value: unknown) {
   const num = typeof value === "string" ? Number.parseInt(value, 10) : Number(value);
   if (!Number.isFinite(num)) return 0;
@@ -2920,6 +2943,13 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       const statusValue = status.status;
       if (!waId || !statusValue) continue;
 
+      const failure = extractStatusFailure(status);
+      const failureCode = failure.hasFailure ? failure.code : "";
+      const failureTitle = failure.hasFailure ? failure.title : "";
+      const failureEventId = failure.hasFailure
+        ? `event:status_failed:${String(status.id || `${Date.now()}_${Math.floor(Math.random() * 100000)}`)}`
+        : "";
+
       const threadKey = `thread:${waId}`;
       const thread = (await kv.get(threadKey, "json")) as StoredMessage[] | null;
       if (Array.isArray(thread)) {
@@ -2927,18 +2957,83 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         for (let i = thread.length - 1; i >= 0; i -= 1) {
           if (thread[i].id === status.id) {
             thread[i].status = statusValue;
+            if (failure.hasFailure) {
+              thread[i].status_error_code = failureCode || undefined;
+              thread[i].status_error_title = failureTitle || undefined;
+            } else {
+              delete thread[i].status_error_code;
+              delete thread[i].status_error_title;
+            }
             updated = true;
             break;
           }
         }
+
+        if (failure.hasFailure && failureEventId) {
+          const existsFailureEvent = thread.some((item) => String(item?.id || "") === failureEventId);
+          if (!existsFailureEvent) {
+            thread.push({
+              id: failureEventId,
+              from: waId,
+              timestamp: String(nowUnix()),
+              type: "event",
+              text: failure.text,
+              direction: "in",
+              event_kind: "status_failed",
+              event_state: "failed",
+            });
+            updated = true;
+          }
+        }
+
         if (updated) {
+          if (thread.length > THREAD_CACHE_LIMIT) {
+            thread.splice(0, thread.length - THREAD_CACHE_LIMIT);
+          }
           await kv.put(threadKey, JSON.stringify(thread));
           try {
-            await dbUpdateMessageStatusByMessageId(env, waId, status.id, statusValue);
+            if (status.id) {
+              await dbUpdateMessageStatusByMessageId(env, waId, status.id, statusValue);
+            }
           } catch {
             // keep webhook resilient if D1 message status update fails
           }
+          if (failure.hasFailure && failureEventId) {
+            try {
+              await dbUpsertMessage(env, {
+                id: failureEventId,
+                wa_id: waId,
+                from: waId,
+                timestamp: String(nowUnix()),
+                type: "event",
+                text: failure.text,
+                direction: "in",
+                event_kind: "status_failed",
+                event_state: "failed",
+              });
+            } catch {
+              // keep webhook resilient if D1 failure event insert fails
+            }
+          }
         }
+      }
+
+      if (failure.hasFailure) {
+        const contactForLog = contactList.find((item) => item.wa_id === waId);
+        const tagsSnapshot = [...(contactForLog?.tags || [])];
+        appendFlowLog(logs, {
+          ts: Date.now(),
+          wa_id: waId,
+          flow_name: "(status envio)",
+          trigger: "Status WhatsApp",
+          tags_before: tagsSnapshot,
+          tags_after: tagsSnapshot,
+          notes: [
+            `status_failed:${String(status.id || "-")}`,
+            `code:${failureCode || "-"}`,
+            `title:${failureTitle || "-"}`,
+          ],
+        });
       }
 
       const convo = list.find((item) => item.wa_id === waId);

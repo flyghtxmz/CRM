@@ -233,6 +233,13 @@ function renderThread(items) {
         const span = document.createElement("span");
         span.className = `status ${status.cls}`;
         span.textContent = status.text;
+        const reasonCode = String(item.status_error_code || "").trim();
+        const reasonTitle = String(item.status_error_title || "").trim();
+        if (reasonTitle || reasonCode) {
+          span.title = reasonTitle
+            ? `${reasonCode ? `(${reasonCode}) ` : ""}${reasonTitle}`
+            : `Codigo ${reasonCode}`;
+        }
         meta.appendChild(span);
       }
     }
