@@ -22,6 +22,8 @@ type StoredMessage = {
   name?: string;
   direction?: "in" | "out";
   status?: string;
+  status_error_code?: string;
+  status_error_title?: string;
   event_kind?: string;
   event_state?: string;
 };
