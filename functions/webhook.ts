@@ -53,6 +53,7 @@ type FlowEdge = {
 type FlowNode = {
   id: string;
   type: string;
+  title?: string;
   x?: number;
   y?: number;
   trigger?: string;
@@ -64,6 +65,9 @@ type FlowNode = {
     with_timeout?: boolean;
     timeout_value?: number;
     timeout_unit?: string;
+    flow_id?: string;
+    flow_name?: string;
+    start_trigger?: string;
   };
   body?: string;
   url?: string;
@@ -179,6 +183,8 @@ type FlowLinkMeta = {
 };
 
 const FLOW_TRIGGER_DEBOUNCE_SEC = 10;
+const FLOW_START_TRIGGER_USER_MESSAGE = "Quando usuario enviar mensagem";
+const FLOW_START_TRIGGER_AUTOMATION_PREFIX = "Gatilho de automacao existente";
 const FLOW_DELAY_INDEX_KEY = "flow-delay-jobs:index";
 const FLOW_WAIT_REPLY_PREFIX = "flow-wait:";
 const FLOW_WAIT_FAST_REPLY_PREFIX = "flow-wait-fast-reply:";
@@ -319,6 +325,11 @@ function toBlockToken(blockLabel: string) {
   const match = String(blockLabel || "").match(/(\d+)/);
   if (!match) return "bl0";
   return `bl${match[1]}`;
+}
+
+function buildAutomationStartTriggerLabel(sourceLabel: string) {
+  const normalized = String(sourceLabel || "").trim() || "Acao";
+  return `${FLOW_START_TRIGGER_AUTOMATION_PREFIX} ${normalized}`;
 }
 
 async function contactUidToken(env: Env, contact: Contact) {
@@ -1422,6 +1433,8 @@ async function runFlow(
   logNotes: string[],
   inboundText: string,
   startNodeId?: string,
+  startTriggerLabel = FLOW_START_TRIGGER_USER_MESSAGE,
+  flowTrail: string[] = [],
 ): Promise<boolean> {
   if (!flow || flow.enabled === false) return false;
   const kv = env.BOTZAP_KV;
@@ -1435,6 +1448,9 @@ async function runFlow(
     ? String((await kv.get(flowLastLinkKey(contact.wa_id))) || "").trim()
     : "";
 
+  const expectedStartTrigger = String(startTriggerLabel || FLOW_START_TRIGGER_USER_MESSAGE).trim() || FLOW_START_TRIGGER_USER_MESSAGE;
+  const nextFlowTrail = [...flowTrail, String(flow.id || "")].slice(-8);
+
   const nodesById = new Map(nodes.map((node) => [node.id, node]));
   const entryNodeIds: string[] = [];
 
@@ -1443,7 +1459,7 @@ async function runFlow(
   } else {
     const startNodes = nodes.filter(
       (node) =>
-        node.type === "start" && node.trigger === "Quando usuario enviar mensagem",
+        node.type === "start" && String(node.trigger || "").trim() === expectedStartTrigger,
     );
     if (!startNodes.length) return false;
     entryNodeIds.push(...startNodes.map((node) => node.id));
@@ -1472,6 +1488,48 @@ async function runFlow(
       }
 
       if (node.type === "action") {
+        if (node.action?.type === "start_flow") {
+          if (!kv) {
+            logNotes.push(`acao:start_flow:${node.id}:sem_kv`);
+          } else {
+            const targetFlowId = String(node.action?.flow_id || "").trim();
+            const targetFlowName = String(node.action?.flow_name || "").trim();
+            const sourceBlock = String(node.title || "").trim() || "Acao";
+            const startTrigger = String(node.action?.start_trigger || buildAutomationStartTriggerLabel(sourceBlock)).trim();
+
+            if (!targetFlowId) {
+              logNotes.push(`acao:start_flow:${node.id}:sem_fluxo`);
+            } else if (targetFlowId === String(flow.id || "") || nextFlowTrail.includes(targetFlowId)) {
+              logNotes.push(`acao:start_flow:${node.id}:loop_bloqueado`);
+            } else if (nextFlowTrail.length >= 8) {
+              logNotes.push(`acao:start_flow:${node.id}:limite_cadeia`);
+            } else {
+              const flowIndex = (await kv.get("flows:index", "json")) as Flow[] | null;
+              const availableFlows: Flow[] = Array.isArray(flowIndex) ? flowIndex : [];
+              const targetFlow = availableFlows.find((item) => item.id === targetFlowId && item.enabled !== false);
+
+              if (!targetFlow) {
+                logNotes.push(`acao:start_flow:${node.id}:fluxo_nao_encontrado`);
+              } else {
+                const nestedExecuted = await runFlow(
+                  env,
+                  targetFlow,
+                  contact,
+                  logNotes,
+                  inboundText,
+                  undefined,
+                  startTrigger,
+                  nextFlowTrail,
+                );
+                if (nestedExecuted) {
+                  logNotes.push(`acao:start_flow:${node.id}:ok:${targetFlowName || targetFlow.name || targetFlow.id}`);
+                } else {
+                  logNotes.push(`acao:start_flow:${node.id}:sem_gatilho:${targetFlowName || targetFlow.name || targetFlow.id}`);
+                }
+              }
+            }
+          }
+        }
         if (node.action?.type === "wait_reply") {
           const nextAfterWait = findNextEdge(edges, node.id, "default");
           if (!nextAfterWait) {

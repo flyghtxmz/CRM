@@ -46,7 +46,10 @@ let linkFromBranch = null;
 let autoSaveTimer = null;
 let selectedNodeId = null;
 let messageBlockOrderCache = new Map();
+let actionBlockOrderCache = new Map();
 let audioLibraryCache = [];
+let flowsCatalogCache = [];
+let automationTriggerOptionsCache = [];
 let blockPickerRaf = null;
 let ffmpegContext = {
   ffmpeg: null,
@@ -292,6 +295,8 @@ const blockOptions = [
   { type: "action", label: "Acoes" },
 ];
 const MESSAGE_NODE_TYPES = new Set(["message", "message_link", "message_short", "message_image", "message_audio", "message_fast_reply", "human_service"]);
+const START_TRIGGER_USER_MESSAGE = "Quando usuario enviar mensagem";
+const START_TRIGGER_AUTOMATION_PREFIX = "Gatilho de automacao existente";
 
 function makeId(prefix) {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
@@ -327,6 +332,62 @@ async function fetchFlow(flowId) {
   const data = await res.json();
   if (!data || !data.ok) return null;
   return data.data || null;
+}
+
+async function fetchAllFlows() {
+  const res = await fetch("/api/flows", { credentials: "include" });
+  if (!res.ok) return [];
+  const data = await res.json().catch(() => null);
+  if (!data || !data.ok || !Array.isArray(data.data)) return [];
+  return data.data;
+}
+
+function buildAutomationTriggerLabel(sourceLabel) {
+  const normalized = String(sourceLabel || "").trim() || "Acao";
+  return `${START_TRIGGER_AUTOMATION_PREFIX} ${normalized}`;
+}
+
+function actionBlockNameForNode(nodeId) {
+  const key = String(nodeId || "");
+  let order = Number(actionBlockOrderCache.get(key) || 0);
+  if (!order && key) {
+    actionBlockOrderCache = computeActionBlockOrderMap();
+    order = Number(actionBlockOrderCache.get(key) || 0);
+  }
+  return order > 0 ? `Acao ${order}` : "Acao";
+}
+
+async function refreshAutomationTriggerOptions(force = false) {
+  if (force || !Array.isArray(flowsCatalogCache) || !flowsCatalogCache.length) {
+    flowsCatalogCache = await fetchAllFlows();
+  }
+
+  const targetFlowId = String(state.flowId || "").trim();
+  const labels = [];
+
+  (Array.isArray(flowsCatalogCache) ? flowsCatalogCache : []).forEach((flow) => {
+    const nodes = Array.isArray(flow?.data?.nodes) ? flow.data.nodes : [];
+    nodes.forEach((node) => {
+      if (String(node?.type || "") !== "action") return;
+      const action = node?.action;
+      if (!action || String(action.type || "") !== "start_flow") return;
+      if (targetFlowId && String(action.flow_id || "").trim() !== targetFlowId) return;
+      const label = String(action.start_trigger || "").trim();
+      if (!label || !label.startsWith(START_TRIGGER_AUTOMATION_PREFIX)) return;
+      labels.push(label);
+    });
+  });
+
+  automationTriggerOptionsCache = uniqueStrings(labels);
+}
+
+function startTriggerMenuOptions(currentTrigger) {
+  const options = [START_TRIGGER_USER_MESSAGE, ...(Array.isArray(automationTriggerOptionsCache) ? automationTriggerOptionsCache : [])];
+  const current = String(currentTrigger || "").trim();
+  if (current && current.startsWith(START_TRIGGER_AUTOMATION_PREFIX) && !options.includes(current)) {
+    options.push(current);
+  }
+  return uniqueStrings(options);
 }
 
 async function saveFlowToApi(payload) {
@@ -475,6 +536,11 @@ async function loadFlow() {
           node.action.timeout_value = normalizeWaitClickValue(node.action.timeout_value);
           node.action.timeout_unit = normalizeWaitClickUnit(node.action.timeout_unit);
         }
+        if (node.action.type === "start_flow") {
+          node.action.flow_id = String(node.action.flow_id || "").trim();
+          node.action.flow_name = String(node.action.flow_name || "").trim();
+          node.action.start_trigger = String(node.action.start_trigger || "").trim();
+        }
       } else if (typeof node.action === "string" && node.action.trim()) {
         node.action = { type: "text", label: node.action.trim() };
       } else {
@@ -497,6 +563,7 @@ async function loadFlow() {
   if (flowNameInput) {
     flowNameInput.value = state.flowName;
   }
+  await refreshAutomationTriggerOptions(true).catch(() => {});
   applyZoom();
 
   return true;
@@ -523,6 +590,7 @@ async function saveFlow() {
   if (saved?.id) {
     state.flowId = saved.id;
   }
+  await refreshAutomationTriggerOptions(true).catch(() => {});
 }
 
 function scheduleAutoSave() {
@@ -588,6 +656,10 @@ function formatAction(action) {
     const value = normalizeWaitClickValue(action.timeout_value);
     const unit = normalizeWaitClickUnit(action.timeout_unit);
     return `Aguardar click (${formatDelaySummary(value, unit)})`;
+  }
+  if (action.type === "start_flow") {
+    const flowName = String(action.flow_name || action.flow_id || "").trim();
+    return flowName ? `Iniciar automacao: ${flowName}` : "Iniciar automacao";
   }
   return action.label || "";
 }
@@ -759,6 +831,19 @@ function computeMessageBlockOrderMap() {
     order.set(String(node.id || ""), counter);
   });
 
+  return order;
+}
+
+function computeActionBlockOrderMap() {
+  const order = new Map();
+  let counter = 0;
+  state.nodes
+    .filter((node) => String(node?.type || "") === "action")
+    .sort(nodePositionSort)
+    .forEach((node) => {
+      counter += 1;
+      order.set(String(node.id || ""), counter);
+    });
   return order;
 }
 
@@ -1198,15 +1283,30 @@ function renderStartNode(node) {
 
   const menu = document.createElement("div");
   menu.className = "trigger-menu";
-  const option = document.createElement("button");
-  option.type = "button";
-  option.textContent = "Quando usuario enviar mensagem";
-  option.addEventListener("click", () => {
-    node.trigger = option.textContent;
-    renderAll();
-    scheduleAutoSave();
+
+  const optionLabels = startTriggerMenuOptions(node.trigger);
+  optionLabels.forEach((label) => {
+    const option = document.createElement("button");
+    option.type = "button";
+    option.textContent = label;
+    option.addEventListener("click", () => {
+      node.trigger = label;
+      renderAll();
+      scheduleAutoSave();
+      saveFlow();
+    });
+    menu.appendChild(option);
   });
-  menu.appendChild(option);
+
+  if (!optionLabels.some((label) => String(label || "").startsWith(START_TRIGGER_AUTOMATION_PREFIX))) {
+    const hintOption = document.createElement("button");
+    hintOption.type = "button";
+    hintOption.textContent = `${START_TRIGGER_AUTOMATION_PREFIX} (...)`;
+    hintOption.disabled = true;
+    hintOption.className = "ghost";
+    menu.appendChild(hintOption);
+  }
+
   body.appendChild(menu);
 
   triggerButton.addEventListener("click", () => {
@@ -1235,6 +1335,7 @@ function renderStartNode(node) {
   attachNodeInteractions(el, node);
   enableDrag(el, node);
 }
+
 
 function renderConditionNode(node) {
   if (!surface) return;
@@ -1666,6 +1767,11 @@ function renderActionNode(node) {
   waitClickOption.textContent = "Aguardar click no link";
   rootView.appendChild(waitClickOption);
 
+  const startFlowOption = document.createElement("button");
+  startFlowOption.type = "button";
+  startFlowOption.textContent = "Iniciar automacao";
+  rootView.appendChild(startFlowOption);
+
   const tagView = document.createElement("div");
   tagView.className = "action-popup-tag";
   const tagHeader = document.createElement("div");
@@ -1848,10 +1954,106 @@ function renderActionNode(node) {
   waitClickView.appendChild(waitClickHeader);
   waitClickView.appendChild(waitClickPanel);
 
+  const startFlowView = document.createElement("div");
+  startFlowView.className = "action-popup-start-flow";
+  const startFlowHeader = document.createElement("div");
+  startFlowHeader.className = "action-popup-title";
+  const startFlowBackBtn = document.createElement("button");
+  startFlowBackBtn.type = "button";
+  startFlowBackBtn.className = "ghost";
+  startFlowBackBtn.textContent = "Voltar";
+  startFlowBackBtn.addEventListener("click", () => {
+    popup.dataset.view = "root";
+  });
+  const startFlowTitle = document.createElement("span");
+  startFlowTitle.textContent = "Iniciar automacao";
+  startFlowHeader.appendChild(startFlowBackBtn);
+  startFlowHeader.appendChild(startFlowTitle);
+
+  const startFlowPanel = document.createElement("div");
+  startFlowPanel.className = "action-start-flow-panel";
+  const startFlowSelect = document.createElement("select");
+  const startFlowHint = document.createElement("div");
+  startFlowHint.className = "hint";
+  const startFlowSave = document.createElement("button");
+  startFlowSave.type = "button";
+  startFlowSave.textContent = "Salvar";
+
+  const populateStartFlowSelect = async (selectedFlowId = "") => {
+    await refreshAutomationTriggerOptions(true).catch(() => {});
+    const flows = (Array.isArray(flowsCatalogCache) ? flowsCatalogCache : [])
+      .filter((item) => String(item?.id || "") !== String(state.flowId || "") && item?.enabled !== false)
+      .sort((a, b) => String(a?.name || "").localeCompare(String(b?.name || "")));
+
+    startFlowSelect.innerHTML = "";
+    const placeholderOption = document.createElement("option");
+    placeholderOption.value = "";
+    placeholderOption.textContent = flows.length ? "Selecione um fluxo" : "Nenhum fluxo disponivel";
+    startFlowSelect.appendChild(placeholderOption);
+
+    flows.forEach((flow) => {
+      const option = document.createElement("option");
+      option.value = String(flow.id || "");
+      option.textContent = String(flow.name || flow.id || "Fluxo sem nome");
+      startFlowSelect.appendChild(option);
+    });
+
+    if (selectedFlowId && flows.some((flow) => String(flow.id || "") === String(selectedFlowId))) {
+      startFlowSelect.value = String(selectedFlowId);
+    } else {
+      startFlowSelect.value = "";
+    }
+  };
+
+  const updateStartFlowHint = () => {
+    const sourceBlock = actionBlockNameForNode(node.id);
+    const triggerLabel = buildAutomationTriggerLabel(sourceBlock);
+    startFlowHint.textContent = `Gatilho no fluxo destino (imutavel): ${triggerLabel}`;
+  };
+
+  const openStartFlowConfig = async () => {
+    const current = node.action?.type === "start_flow" ? node.action : null;
+    await populateStartFlowSelect(String(current?.flow_id || ""));
+    updateStartFlowHint();
+    popup.dataset.view = "start_flow";
+  };
+
+  startFlowSave.addEventListener("click", () => {
+    const flowId = String(startFlowSelect.value || "").trim();
+    if (!flowId) return;
+    const selectedOption = startFlowSelect.options[startFlowSelect.selectedIndex];
+    const flowName = String(selectedOption?.textContent || "").trim();
+    const sourceBlock = actionBlockNameForNode(node.id);
+    const triggerLabel = buildAutomationTriggerLabel(sourceBlock);
+
+    node.action = {
+      type: "start_flow",
+      flow_id: flowId,
+      flow_name: flowName,
+      start_trigger: triggerLabel,
+    };
+
+    popup.classList.remove("open");
+    renderAll();
+    scheduleAutoSave();
+    saveFlow();
+  });
+
+  startFlowOption.addEventListener("click", () => {
+    openStartFlowConfig();
+  });
+
+  startFlowPanel.appendChild(startFlowSelect);
+  startFlowPanel.appendChild(startFlowHint);
+  startFlowPanel.appendChild(startFlowSave);
+  startFlowView.appendChild(startFlowHeader);
+  startFlowView.appendChild(startFlowPanel);
+
   popup.appendChild(popupHeader);
   popup.appendChild(rootView);
   popup.appendChild(tagView);
   popup.appendChild(waitClickView);
+  popup.appendChild(startFlowView);
   body.appendChild(popup);
 
   const openPopup = (event) => {
@@ -2985,6 +3187,7 @@ function renderNodes() {
   existing.forEach((node) => node.remove());
 
   messageBlockOrderCache = computeMessageBlockOrderMap();
+  actionBlockOrderCache = computeActionBlockOrderMap();
 
   state.nodes.forEach((node) => {
     if (node.type === "start") {

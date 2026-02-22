@@ -1180,7 +1180,23 @@ body.canva-page .topbar-actions {
 }
 
 .action-popup[data-view="wait_click"] .action-popup-root,
-.action-popup[data-view="wait_click"] .action-popup-tag {
+.action-popup[data-view="wait_click"] .action-popup-tag,
+.action-popup[data-view="wait_click"] .action-popup-start-flow {
+  display: none;
+}
+
+.action-popup-start-flow {
+  display: none;
+  gap: 10px;
+}
+
+.action-popup[data-view="start_flow"] .action-popup-start-flow {
+  display: grid;
+}
+
+.action-popup[data-view="start_flow"] .action-popup-root,
+.action-popup[data-view="start_flow"] .action-popup-tag,
+.action-popup[data-view="start_flow"] .action-popup-wait-click {
   display: none;
 }
 
@@ -1227,6 +1243,15 @@ body.canva-page .topbar-actions {
 .action-wait-click-panel {
   display: grid;
   gap: 8px;
+}
+
+.action-start-flow-panel {
+  display: grid;
+  gap: 8px;
+}
+
+.action-start-flow-panel select {
+  width: 100%;
 }
 
 .action-wait-click-switch {
