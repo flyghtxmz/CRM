@@ -248,6 +248,23 @@ function messagePreview(message: any) {
     const caption = String(message.image?.caption || "").trim();
     return caption ? `[imagem] ${caption}` : "[imagem]";
   }
+  if (message.type === "button") {
+    const label = String(message.button?.text || "").trim();
+    return label ? `[botao] ${label}` : "[botao]";
+  }
+  if (message.type === "interactive") {
+    const selected = String(message.interactive?.button_reply?.title || message.interactive?.list_reply?.title || "").trim();
+    return selected ? `[botao] ${selected}` : "[interactive]";
+  }
+  if (message.type === "unsupported") {
+    const first = Array.isArray(message.errors) && message.errors.length ? message.errors[0] : null;
+    const code = first?.code !== undefined && first?.code !== null ? String(first.code).trim() : "";
+    const title = String(first?.title || first?.message || first?.error_data?.details || "").trim();
+    if (title && code) return `[unsupported:${code}] ${title}`;
+    if (title) return `[unsupported] ${title}`;
+    if (code) return `[unsupported:${code}]`;
+    return "[unsupported]";
+  }
   if (message.type === "audio") return "[audio]";
   if (message.type === "video") return "[video]";
   if (message.type === "document") return "[documento]";
@@ -266,6 +283,7 @@ function messageConditionText(message: any) {
     const selected = String(message.interactive?.button_reply?.title || message.interactive?.list_reply?.title || "").trim();
     if (selected) return selected;
   }
+  if (message.type === "unsupported") return "";
   return String(messagePreview(message) || "").trim();
 }
 
@@ -2649,6 +2667,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       }
 
       const inboundText = messageConditionText(message);
+      const isInteractiveOnlyInput = message.type === "interactive" || message.type === "button";
       let executedCount = 0;
       let logged = false;
       let waitReplyStatesCount = 0;
@@ -2727,6 +2746,10 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
           }
 
           notes.push(`fast_reply:opcao:${matchedIndex + 1}`);
+          const selectedOptionLabel = String(options[matchedIndex] || "").trim();
+          if (selectedOptionLabel) {
+            notes.push(`fast_reply:botao:${selectedOptionLabel}`);
+          }
           const waitKind = String(waitState.kind || "fast_reply").toLowerCase();
           if (waitKind === "human_service") {
             if (matchedIndex === 0) {
@@ -2877,6 +2900,20 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
               logged = true;
             }
           }
+        } else if (isInteractiveOnlyInput) {
+          appendFlowLog(logs, {
+            ts: Date.now(),
+            wa_id: waId,
+            flow_name: "(interacao sem espera)",
+            trigger: "Aguardar fast reply",
+            tags_before: [...(contactRecord.tags || [])],
+            tags_after: [...(contactRecord.tags || [])],
+            notes: [
+              "interactive:ignorado",
+              inboundText ? `botao:${inboundText}` : "botao:(vazio)",
+            ],
+          });
+          logged = true;
         } else if (!flows.length) {
           appendFlowLog(logs, {
             ts: Date.now(),
